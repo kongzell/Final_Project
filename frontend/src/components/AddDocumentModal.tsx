@@ -83,7 +83,6 @@ export function AddDocumentModal({ linkable, onClose, onCreate }: Props) {
         <header className="modal-head">
           <div>
             <h2 className="modal-title">Add document</h2>
-            <p className="modal-sub">The first file starts a new document — add related files to it later</p>
           </div>
           <button type="button" className="modal-close" onClick={onClose} title="Close">
             <IconClose size={16} />
@@ -155,7 +154,7 @@ export function AddDocumentModal({ linkable, onClose, onCreate }: Props) {
               <span className="field-label">Doc number (optional)</span>
               <input
                 className="field-input"
-                placeholder="e.g. สธ 0201/1234"
+                placeholder="01/1234"
                 value={docNumber}
                 onChange={(e) => setDocNumber(e.target.value)}
               />
@@ -181,7 +180,6 @@ export function AddDocumentModal({ linkable, onClose, onCreate }: Props) {
                 </option>
               ))}
             </select>
-            <span className="modal-hint">Only projects you own or admin. Nothing is created on GitHub.</span>
           </label>
 
           {error && <p className="modal-error">{error}</p>}
