@@ -45,6 +45,8 @@ export type Task = {
   actualHours: number | null
   /** id ของงานที่ต้องเสร็จก่อนใบนี้ถึงจะเริ่มได้ — ว่าง = เริ่มได้เลย */
   dependsOn: string[]
+  /** ไฟล์ในหน้า Documents ที่งานนี้แตกมาจาก — null ถ้าสร้างเองหรือเอกสารถูกลบแล้ว */
+  sourceFileId: string | null
   /** branch ล่าสุดที่ commit ถึงงานนี้ */
   branch: string | null
   /** ลิงก์ PR ล่าสุดที่อ้างถึงงานนี้ */

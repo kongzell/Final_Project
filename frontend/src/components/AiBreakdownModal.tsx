@@ -1,21 +1,35 @@
 import { useEffect, useState } from "react"
 import type { BreakdownResult, SubtaskSuggestion } from "../api"
-import { breakdownTask } from "../api"
+import { breakdownFile, breakdownTask } from "../api"
 import { CATEGORIES, categoryColor, COMPLEXITIES, formatDuration } from "../types"
 import {
-  IconCheck, IconChevronDown, IconClose, IconPencil, IconPlus, IconSparkle,
+  IconCalendar, IconCheck, IconChevronDown, IconClose, IconFile, IconPencil, IconPlus,
+  IconSparkle,
 } from "./Icons"
 import "./Modal.css"
 import "./Ai.css"
 
+/** แตกจากไฟล์ในหน้า Documents แทนพิมพ์เอง — ชื่อเรื่องเป็นหัวข้อ เนื้อหาอยู่ในไฟล์ */
+export type BreakdownSource = {
+  caseId: string
+  fileId: string
+  filename: string
+  caseTitle: string
+}
+
 type Props = {
   projectName: string
+  /** มี = โหมดไฟล์: ซ่อนช่อง "What to build" แล้วให้ AI อ่านไฟล์แทน */
+  source?: BreakdownSource
   onClose: () => void
   onAdd: (parentTitle: string, picked: SubtaskSuggestion[]) => void
 }
 
-export function AiBreakdownModal({ projectName, onClose, onAdd }: Props) {
-  const [title, setTitle] = useState("")
+const fmtDue = (iso: string) =>
+  new Date(iso + "T00:00:00").toLocaleDateString("th-TH", { day: "numeric", month: "short" })
+
+export function AiBreakdownModal({ projectName, source, onClose, onAdd }: Props) {
+  const [title, setTitle] = useState(source?.caseTitle ?? "")
   const [context, setContext] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -35,7 +49,7 @@ export function AiBreakdownModal({ projectName, onClose, onAdd }: Props) {
 
   const run = async () => {
     const t = title.trim()
-    if (!t) {
+    if (!t && !source) {
       setError("Enter what you want broken down first")
       return
     }
@@ -43,7 +57,9 @@ export function AiBreakdownModal({ projectName, onClose, onAdd }: Props) {
     setError(null)
     setResult(null)
     try {
-      const data = await breakdownTask(t, context)
+      const data = source
+        ? await breakdownFile(source.caseId, source.fileId, context)
+        : await breakdownTask(t, context)
       setResult(data)
       setPicked(new Set(data.subtasks.map((_, i) => i)))
       setOpenDesc(new Set())
@@ -117,6 +133,19 @@ export function AiBreakdownModal({ projectName, onClose, onAdd }: Props) {
         </header>
 
         <div className="modal-body">
+          {source ? (
+            <div className="field">
+              <span className="field-label">From document</span>
+              <p className="ai-source">
+                <IconFile size={14} />
+                <span className="ai-source-name">{source.filename}</span>
+                <span className="ai-source-case">{source.caseTitle}</span>
+              </p>
+              <span className="modal-hint">
+                The file is sent to Gemini to read. Tasks land on this project's board as a parent card named after the document.
+              </span>
+            </div>
+          ) : (
           <div className="field">
             <span className="field-label">What to build</span>
             <input
@@ -128,6 +157,7 @@ export function AiBreakdownModal({ projectName, onClose, onAdd }: Props) {
               onKeyDown={(e) => e.key === "Enter" && run()}
             />
           </div>
+          )}
 
           <div className="field">
             <span className="field-label">More context (optional)</span>
@@ -220,6 +250,11 @@ export function AiBreakdownModal({ projectName, onClose, onAdd }: Props) {
                           <span key={t} className="ai-tag">{t}</span>
                         ))}
                         <span className="ai-est">{formatDuration(s.estimateHours)}</span>
+                        {s.dueDate && (
+                          <span className="ai-due" title="Due date taken from the schedule in the request">
+                            <IconCalendar size={11} /> {fmtDue(s.dueDate)}
+                          </span>
+                        )}
                         {s.dependsOn.length > 0 && (
                           <span
                             className="ai-dep"
@@ -333,6 +368,14 @@ function SubtaskForm({
           value={value.estimateHours}
           placeholder="hrs"
           onChange={(e) => onChange({ estimateHours: Number(e.target.value) || 0 })}
+        />
+
+        <input
+          className="ai-in ai-in-date"
+          type="date"
+          value={value.dueDate}
+          title="Due date"
+          onChange={(e) => onChange({ dueDate: e.target.value })}
         />
       </div>
 

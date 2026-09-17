@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.models import Member, Project, Task, project_members
+from app.models import Case, CaseFile, Member, Project, Task, case_members, project_members
 
 log = logging.getLogger("notify")
 
@@ -52,6 +52,33 @@ async def emails_of(session: AsyncSession, member_ids: set[str | None]) -> list[
         select(Member.email).where(Member.id.in_(ids), Member.email.is_not(None))
     )
     return [e for e in rows if e]
+
+
+async def case_emails(session: AsyncSession, case_id: str, exclude: set[str]) -> list[str]:
+    """อีเมลของสมาชิกในเรื่อง ยกเว้นคนที่ระบุ — กติกาเดียวกับ project_emails"""
+    rows = await session.scalars(
+        select(Member.email)
+        .join(case_members, case_members.c.member_id == Member.id)
+        .where(
+            case_members.c.case_id == case_id,
+            Member.email.is_not(None),
+            Member.id.not_in(exclude) if exclude else Member.id.is_not(None),
+        )
+    )
+    return [e for e in rows if e]
+
+
+def file_added(case: Case, f: CaseFile, who: Member) -> tuple[str, str]:
+    """มีคนเพิ่มเอกสารเข้าเรื่อง — สมาชิกคนอื่นในเรื่องควรรู้ โดยเฉพาะฉบับแก้ไข"""
+    what = f"ฉบับใหม่ (v{f.version}) ของเอกสารเดิม" if f.replaces_id else "เอกสารใหม่"
+    subject = f"[{case.title}] {who.name} เพิ่ม{what}: {f.filename}"
+    body = "\n".join([
+        f"{who.name} เพิ่ม{what}เข้าเรื่อง \"{case.title}\"",
+        "",
+        f"  {f.filename}  ({f.category}, v{f.version})",
+    ])
+    url = get_settings().app_url
+    return subject, body + f"\n\nเปิดหน้า Documents: {url}\n\n--\nอีเมลนี้ส่งอัตโนมัติจากระบบ 3work"
 
 
 def _task_key(project: Project, task: Task) -> str:

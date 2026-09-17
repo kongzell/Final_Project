@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 
 from app import mailer, notify
+from app.config import LOCAL_TZ
 from app.db import SessionLocal
 from app.models import Project, Task
 
@@ -15,15 +16,8 @@ log = logging.getLogger("overdue")
 #: ไม่ใช่ระบบเรียลไทม์ — เช็คทุกชั่วโมงก็เพียงพอ ไม่ต้องถี่กว่านี้
 CHECK_INTERVAL_SECONDS = 60 * 60
 
-#: เขตเวลาที่ใช้ตัดสินว่า "วันนี้" คือวันไหน
-#:
-#: คอนเทนเนอร์รันเป็น UTC แต่ผู้ใช้กรอกกำหนดส่งตามปฏิทินไทย ถ้าใช้ date.today() ตรง ๆ
-#: การ์ดจะขึ้นสีส้มบนหน้าเว็บตั้งแต่เที่ยงคืนไทย แต่อีเมลไม่ออกจนกว่าจะ 7 โมงเช้า
-#: เพราะฝั่งเซิร์ฟเวอร์ยังนับเป็นเมื่อวานอยู่
-#:
-#: ใช้ offset ตายตัวแทน ZoneInfo เพราะ image ที่ใช้ไม่ได้ลง tzdata มาด้วย
-#: และไทยไม่มี daylight saving ค่า +7 จึงถูกต้องตลอดทั้งปีอยู่แล้ว
-LOCAL_TZ = timezone(timedelta(hours=7))
+# "วันนี้" ต้องเป็นวันตามปฏิทินไทย (LOCAL_TZ ใน config) — ถ้าใช้ date.today() ของคอนเทนเนอร์
+# ซึ่งเป็น UTC การ์ดจะขึ้นสีส้มบนหน้าเว็บตั้งแต่เที่ยงคืนไทย แต่อีเมลไม่ออกจนกว่าจะ 7 โมงเช้า
 
 
 async def _check_once() -> None:

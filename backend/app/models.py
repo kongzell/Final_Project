@@ -91,6 +91,12 @@ class Member(Base):
     github_login: Mapped[str | None] = mapped_column(String(80), nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     email: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # --- บัญชีแบบธรรมดา (username + รหัสผ่าน) — บัญชี GitHub ปล่อยเป็น NULL ทั้งคู่ ---
+    #: ชื่อผู้ใช้สำหรับล็อกอิน ตัวพิมพ์เล็ก ไม่ซ้ำ — แยกจาก email ที่ใช้รับแจ้งเตือน
+    username: Mapped[str | None] = mapped_column(String(40), unique=True, nullable=True)
+    #: scrypt hash จาก app.passwords — ห้ามอ่านหรือส่งออกไปที่ไหน
+    password_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     #: access token ของ GitHub — เก็บไว้เรียก API ทีหลัง (เช่น ดึงรายชื่อสมาชิก org)
     #: หมายเหตุความปลอดภัย: เก็บเป็น plaintext ตอน dev
     #: ก่อนขึ้น production ควรเข้ารหัสก่อนบันทึก
@@ -376,6 +382,8 @@ class WebhookEvent(Base):
     """เก็บ event ที่ GitHub ยิงเข้ามา ไว้แสดงใน Webhook Log ฝั่งขวา"""
 
     __tablename__ = "webhook_events"
+    #: ฟีดดึงตาม repo เรียงตามเวลา — ประกาศไว้ตรงนี้ด้วยให้ตรงกับ migration ไม่งั้น autogenerate จะลบทิ้ง
+    __table_args__ = (Index("ix_webhook_events_repo_received", "repo", "received_at"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     #: ชนิด event จาก header X-GitHub-Event เช่น push, pull_request
@@ -386,6 +394,9 @@ class WebhookEvent(Base):
     url: Mapped[str | None] = mapped_column(Text, nullable=True)
     #: รหัสงานที่อ่านได้จากข้อความ commit เช่น TASK-001
     task_ref: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    #: repo ต้นทาง (owner/name) — ใช้กรองฟีดให้เห็นเฉพาะโปรเจคที่ตัวเองอยู่
+    #: NULL = แถวเก่าที่เดา repo ไม่ได้ จะไม่ถูกแสดงให้ใครเห็น
+    repo: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
     #: งานที่ AI เดาว่า commit นี้น่าจะหมายถึง — ใช้ตอนที่ commit ไม่ได้เขียนรหัสมา
     #: เป็นแค่ข้อเสนอ ต้องมีคนกดยืนยันถึงจะย้ายการ์ด

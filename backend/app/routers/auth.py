@@ -4,15 +4,16 @@ from urllib.parse import urlencode
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import COOKIE_NAME, MAX_AGE, current_member, make_cookie, require_member
 from app.config import get_settings
 from app.db import get_session
 from app.models import Member
-from app.routers.github import auto_join_projects
-from app.schemas import AuthStatus, MeOut, MemberUpdate
+from app.passwords import hash_password, verify_password
+from app.routers.github import IMPORT_COLORS, auto_join_projects
+from app.schemas import AuthStatus, LoginIn, MeOut, MemberUpdate, RegisterIn
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -34,8 +35,70 @@ async def status(member: Member | None = Depends(current_member)) -> AuthStatus:
     settings = get_settings()
     return AuthStatus(
         configured=settings.github_ready,
+        signup_open=settings.allow_signup,
         member=MeOut.model_validate(member) if member else None,
     )
+
+
+# ---------- บัญชีแบบธรรมดา ----------
+#
+# อยู่ร่วมกับ GitHub OAuth ในตาราง members เดียวกัน ต่างกันแค่คอลัมน์ที่กรอก
+# บัญชีแบบนี้ไม่มี token ของ GitHub จึงใช้ฟีเจอร์ที่ต้องเรียก GitHub API ไม่ได้
+# (ดึง collaborator, ฟีด commit) — endpoint พวกนั้นบอกผู้ใช้เองผ่าน _need_token
+# ส่วน webhook ยังทำงานตามปกติเพราะเป็นฝั่งเซิร์ฟเวอร์
+
+
+@router.post("/register", response_model=MeOut, status_code=201)
+async def register(
+    payload: RegisterIn,
+    request: Request,
+    response: Response,
+    session: AsyncSession = Depends(get_session),
+) -> Member:
+    """สมัครแล้วล็อกอินให้เลย — ยังไม่เห็นโปรเจคไหนจนกว่าจะมีคนเพิ่มเข้า เหมือนบัญชี GitHub"""
+    if not get_settings().allow_signup:
+        raise HTTPException(403, "Sign-up is closed — ask a project owner to create your account")
+
+    username = payload.username.lower()
+    taken = await session.scalar(select(Member.id).where(Member.username == username))
+    if taken is not None:
+        raise HTTPException(409, "That username is already taken")
+
+    email = (payload.email or "").strip() or None
+    if email and "@" not in email:
+        raise HTTPException(400, "That does not look like an email address")
+
+    # สีสุ่มจากชุดเดียวกับตอนดึงคนจาก GitHub — ไม่มีรูปโปรไฟล์ avatar จะโชว์ตัวย่อชื่อบนสีนี้
+    count = await session.scalar(select(func.count()).select_from(Member)) or 0
+    member = Member(
+        name=payload.name.strip(),
+        role="Member",
+        color=IMPORT_COLORS[count % len(IMPORT_COLORS)],
+        username=username,
+        password_hash=hash_password(payload.password),
+        email=email,
+    )
+    session.add(member)
+    await session.commit()
+    await session.refresh(member)
+    _set_cookie(response, member.id, request)
+    return member
+
+
+@router.post("/login", response_model=MeOut)
+async def login(
+    payload: LoginIn,
+    request: Request,
+    response: Response,
+    session: AsyncSession = Depends(get_session),
+) -> Member:
+    member = await session.scalar(select(Member).where(Member.username == payload.username.lower()))
+    # ข้อความเดียวกันไม่ว่าจะผิดตรงไหน — ไม่บอกว่ามี username นี้อยู่หรือไม่
+    # และตรวจรหัสเสมอแม้หาคนไม่เจอ ให้เวลาตอบใกล้เคียงกันทั้งสองกรณี
+    if not verify_password(payload.password, member.password_hash if member else None) or member is None:
+        raise HTTPException(401, "Username or password is incorrect")
+    _set_cookie(response, member.id, request)
+    return member
 
 
 @router.get("/github")

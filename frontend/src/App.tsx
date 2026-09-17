@@ -7,15 +7,17 @@ import * as api from "./api"
 import {
   getAuthStatus, getMembers, logout, updateMyEmail, updateMyRole,
 } from "./api"
-import { AddDocumentModal } from "./components/AddDocumentModal"
+import { NewDocumentModal } from "./components/AddDocumentModal"
 import { AddMemberModal } from "./components/AddMemberModal"
 import { AddProjectModal } from "./components/AddProjectModal"
+import type { BreakdownSource } from "./components/AiBreakdownModal"
 import { AiBreakdownModal } from "./components/AiBreakdownModal"
-import type { TaskDraft } from "./components/Board"
+import type { SourceFileLookup, TaskDraft } from "./components/Board"
 import { Board } from "./components/Board"
 import type { DashboardTab } from "./components/Dashboard"
 import { Dashboard } from "./components/Dashboard"
-import { DocumentsView } from "./components/Documents"
+import { DocumentPanel, DocumentsView } from "./components/Documents"
+import { LoginScreen } from "./components/LoginScreen"
 import { RightSidebar } from "./components/RightSidebar"
 import { Sidebar } from "./components/Sidebar"
 import { Topbar } from "./components/Topbar"
@@ -51,6 +53,8 @@ export default function App() {
   const [docModalOpen, setDocModalOpen] = useState(false)
   /** id ของเรื่องที่กำลังจัดการสมาชิกอยู่ — null = ปิด */
   const [caseMemberModalId, setCaseMemberModalId] = useState<string | null>(null)
+  /** ไฟล์ที่กำลังให้ AI แตกงาน + โปรเจคปลายทาง — null = ปิด */
+  const [aiFile, setAiFile] = useState<(BreakdownSource & { projectId: string }) | null>(null)
 
   const searchRef = useRef<HTMLInputElement>(null)
 
@@ -67,7 +71,7 @@ export default function App() {
       setSyncError(null)
       return rows
     } catch (e) {
-      // ยังไม่ล็อกอินไม่ใช่ความผิดพลาด — หน้า NeedLogin บอกอยู่แล้ว
+      // ยังไม่ล็อกอินไม่ใช่ความผิดพลาด — หน้า LoginScreen บอกอยู่แล้ว
       setProjects([])
       setSyncError(api.isUnauthorized(e) ? null : e instanceof Error ? e.message : "Cannot reach the API")
       return null
@@ -112,7 +116,7 @@ export default function App() {
     try {
       setCases(await api.getCases())
     } catch {
-      // ยังไม่ล็อกอิน — หน้า NeedLogin บอกอยู่แล้ว
+      // ยังไม่ล็อกอิน — หน้า LoginScreen บอกอยู่แล้ว
       setCases([])
     }
   }, [])
@@ -122,7 +126,7 @@ export default function App() {
       setAuth(await getAuthStatus())
     } catch {
       // backend ยังไม่ขึ้น — ถือว่ายังไม่ได้ล็อกอิน
-      setAuth({ configured: false, member: null })
+      setAuth({ configured: false, signupOpen: false, member: null })
     }
   }, [])
 
@@ -166,20 +170,25 @@ export default function App() {
    * เพิ่มผลลัพธ์จาก AI — สร้างการ์ดแม่จากหัวข้อที่พิมพ์ไว้ 1 ใบ
    * แล้วเก็บงานย่อยไว้ข้างใน (ไม่ขึ้นบนบอร์ด ดูได้จากแผงรายละเอียดฝั่งขวา)
    */
-  const addSuggestions = (parentTitle: string, picked: SubtaskSuggestion[]) => {
-    if (!project) return
+  const addSuggestions = (
+    parentTitle: string,
+    picked: SubtaskSuggestion[],
+    target: { projectId: string; sourceFileId?: string } | null = project && { projectId: project.id },
+  ) => {
+    if (!target) return
     const totalHours = picked.reduce((sum, s) => sum + s.estimateHours, 0)
 
     void sync(async () => {
-      const parent = await api.createTask(project.id, {
+      const parent = await api.createTask(target.projectId, {
         title: parentTitle,
         estimateHours: totalHours || null,
+        sourceFileId: target.sourceFileId ?? null,
       })
       // AI อ้างถึงงานที่ต้องเสร็จก่อนด้วย "ตำแหน่งในลิสต์" เพราะตอนนั้นยังไม่มี id
       // สร้างไล่ตามลำดับแล้วเก็บ id ไว้ ตัวที่อ้างถึงจึงถูกสร้างไปแล้วเสมอ (อ้างถอยหลังอย่างเดียว)
       const created: string[] = []
       for (const s of picked) {
-        const task = await api.createTask(project.id, {
+        const task = await api.createTask(target.projectId, {
           title: s.title,
           description: s.description || null,
           parentId: parent.id,
@@ -188,10 +197,20 @@ export default function App() {
           estimateHours: s.estimateHours,
           complexity: s.complexity,
           dependsOn: s.dependsOn.map((i) => created[i]).filter(Boolean),
+          sourceFileId: target.sourceFileId ?? null,
+          dueDate: s.dueDate || null,
         })
         created.push(task.id)
       }
       setSelectedTaskId(parent.id)
+      if (target.sourceFileId) {
+        // มีงานลงบอร์ดแล้วถือว่าเรื่องเริ่มดำเนินการ — ขยับให้เองเฉพาะตอนยังเป็น "รับเรื่อง"
+        const c = cases.find((x) => x.files.some((f) => f.id === target.sourceFileId))
+        if (c && c.status === "received") await api.updateCase(c.id, { status: "in_progress" })
+        await refreshCases()
+        setActiveProjectId(target.projectId)
+        setView("board")
+      }
     })
   }
 
@@ -293,7 +312,33 @@ export default function App() {
       await refreshCases()
     },
     onManageMembers: (id: string) => setCaseMemberModalId(id),
+    onBreakdown: (c: Case, file: Case["files"][number]) => {
+      if (!c.projectId) return
+      setAiFile({ caseId: c.id, fileId: file.id, filename: file.filename, caseTitle: c.title, projectId: c.projectId })
+    },
+    onExtract: async (c: Case, file: Case["files"][number]) => {
+      // เติมเฉพาะช่องที่ยังว่าง — ค่าที่คนพิมพ์ไว้แล้วถือว่าถูกกว่าที่ AI เดา
+      const meta = await api.extractFileMetadata(c.id, file.id)
+      const patch: api.CasePatch = {}
+      if (!c.docNumber && meta.docNumber) patch.docNumber = meta.docNumber
+      if (!c.agency && meta.agency) patch.agency = meta.agency
+      if (!c.deadline && meta.deadline) patch.deadline = meta.deadline
+      const filled = Object.keys(patch)
+      if (filled.length > 0) {
+        await api.updateCase(c.id, patch)
+        await refreshCases()
+      }
+      const what = filled.length > 0 ? `filled ${filled.join(", ")}` : "nothing to fill — the details were already set"
+      return `AI read ${file.filename}: ${what}.${meta.summary ? ` ${meta.summary}` : ""}`
+    },
   }
+
+  const activeCaseView = cases.find((c) => c.id === activeCaseId) ?? null
+
+  /** ชื่อไฟล์ต้นทางของงานทุกใบ — ทำครั้งเดียวจากทุกเรื่องที่เห็น การ์ดจะได้ไม่ต้องค้นเอง */
+  const sourceFiles: SourceFileLookup = new Map(
+    cases.flatMap((c) => c.files.map((f) => [f.id, { name: f.filename, url: api.caseFileUrl(c.id, f.id) }] as const)),
+  )
 
   const activeCase = cases.find((c) => c.id === caseMemberModalId) ?? null
   const caseMembers = activeCase ? allMembers.filter((m) => activeCase.memberIds.includes(m.id)) : []
@@ -343,6 +388,7 @@ export default function App() {
       <main className="main">
         <Topbar
           documents={view === "documents"}
+          documentName={view === "documents" ? activeCaseView?.title ?? null : null}
           project={project}
           projects={projects}
           taskCount={project ? project.tasks.length : 0}
@@ -377,18 +423,26 @@ export default function App() {
         />
 
         {auth !== null && auth.member === null ? (
-          <NeedLogin configured={auth.configured} />
+          <LoginScreen
+            githubReady={auth.configured}
+            signupOpen={auth.signupOpen}
+            onSignedIn={async () => {
+              // โหลดทุกอย่างใหม่หลังล็อกอิน — ก่อนหน้านี้ทุก request ได้ 401 จึงว่างหมด
+              await refreshAuth()
+              await Promise.all([refreshMembers(), refreshProjects(), refreshCases()])
+            }}
+          />
         ) : view === "documents" ? (
           <DocumentsView
             cases={cases}
             projects={projects}
             members={allMembers}
             currentMemberId={me}
-            selectedId={activeCaseId}
+            selected={activeCaseView}
             onSelect={setActiveCaseId}
-            onAdd={() => setDocModalOpen(true)}
+            onNew={() => setDocModalOpen(true)}
             onOpenProject={(id) => { setActiveProjectId(id); setView("board") }}
-            detail={caseActions}
+            {...caseActions}
           />
         ) : project === null ? (
           <EmptyProjects onOpen={() => setProjectModalOpen(true)} />
@@ -396,6 +450,7 @@ export default function App() {
           <Board
             project={project}
             members={projectMembers}
+            sourceFiles={sourceFiles}
             query={query}
             filters={filters}
             groupBy={groupBy}
@@ -427,9 +482,30 @@ export default function App() {
         )}
       </main>
 
+      {view === "documents" && activeCaseView && (
+        <div className="rs-wrap">
+          <DocumentPanel
+            key={activeCaseView.id}
+            c={activeCaseView}
+            project={projects.find((p) => p.id === activeCaseView.projectId) ?? null}
+            projects={projects}
+            members={allMembers}
+            currentMemberId={me}
+            onUpdate={caseActions.onUpdate}
+            onDelete={caseActions.onDelete}
+            onManageMembers={caseActions.onManageMembers}
+            onOpenProject={(id) => { setActiveProjectId(id); setView("board") }}
+            onClose={() => setActiveCaseId(null)}
+          />
+        </div>
+      )}
+
       {view === "board" && (
       <div className="rs-wrap">
+        {/* key ตามคนที่ล็อกอิน — แผง GitHub ดึงข้อมูลตอน mount ถ้าไม่ remount หลังล็อกอิน
+            จะค้างข้อความ "sign in first" ไปจนกว่าจะถึงรอบ poll ถัดไป (5 นาที) */}
         <RightSidebar
+          key={me ?? "anon"}
           project={project}
           members={projectMembers}
           onOpenTaskRef={(ref) => setQuery(ref)}
@@ -461,7 +537,18 @@ export default function App() {
         <AiBreakdownModal
           projectName={project.name}
           onClose={() => setAiOpen(false)}
-          onAdd={addSuggestions}
+          onAdd={(t, picked) => addSuggestions(t, picked)}
+        />
+      )}
+
+      {aiFile && (
+        <AiBreakdownModal
+          projectName={projects.find((p) => p.id === aiFile.projectId)?.name ?? ""}
+          source={aiFile}
+          onClose={() => setAiFile(null)}
+          onAdd={(t, picked) =>
+            addSuggestions(t, picked, { projectId: aiFile.projectId, sourceFileId: aiFile.fileId })
+          }
         />
       )}
 
@@ -508,7 +595,7 @@ export default function App() {
       )}
 
       {docModalOpen && (
-        <AddDocumentModal
+        <NewDocumentModal
           linkable={linkableProjects}
           onClose={() => setDocModalOpen(false)}
           onCreate={createCase}
@@ -531,25 +618,6 @@ export default function App() {
           onSetRole={(id, role) => void api.setCaseMemberRole(activeCase.id, id, role).then(refreshCases)}
           onImported={refreshMembers}
         />
-      )}
-    </div>
-  )
-}
-
-/** หน้าจอตอนยังไม่มีโปรเจคสักใบ */
-function NeedLogin({ configured }: { configured: boolean }) {
-  return (
-    <div className="empty-projects">
-      <h2>Sign in to continue</h2>
-      <p>
-        {configured
-          ? "Everyone sees their own board — sign in with GitHub to see the projects you belong to"
-          : "GitHub OAuth is not configured — see README.md for setup"}
-      </p>
-      {configured && (
-        <a className="btn btn-primary" href="/api/auth/github">
-          <IconGithub size={14} /> Sign in with GitHub
-        </a>
       )}
     </div>
   )

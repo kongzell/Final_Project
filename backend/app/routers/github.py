@@ -357,19 +357,22 @@ async def import_collaborators(
 
 @router.get("/commits", response_model=list[CommitOut])
 async def commits(
+    project_id: str,
     limit: int = 10,
     member: Member = Depends(require_member),
+    session: AsyncSession = Depends(get_session),
 ) -> list[CommitOut]:
-    """ดึง commit ล่าสุดจาก repo ที่ตั้งไว้ใน GITHUB_REPO"""
-    settings = get_settings()
-    if not settings.github_repo:
-        raise HTTPException(
-            503,
-            "GITHUB_REPO is not set — put owner/repo in .env "
-            "(push the project to GitHub first)",
-        )
+    """commit ล่าสุดของ repo ที่โปรเจคนี้ผูกอยู่ — ต้องเป็นสมาชิกโปรเจค
 
-    url = f"https://api.github.com/repos/{settings.github_repo}/commits"
+    ใช้ token ของคนดูถ้ามี (repo ส่วนตัว) ไม่มีก็ยิงแบบไม่ล็อกอิน ซึ่งอ่านได้เฉพาะ repo สาธารณะ
+    """
+    project = await session.get(Project, project_id)
+    if project is None or member.id not in {m.id for m in project.members}:
+        raise HTTPException(404, f"Project {project_id} not found")
+    if not project.github_repo:
+        return []
+
+    url = f"https://api.github.com/repos/{project.github_repo}/commits"
     headers = {"Accept": "application/vnd.github+json"}
     # repo ส่วนตัวต้องมี token ถึงจะอ่านได้ — ใช้ของคนที่ล็อกอินอยู่
     if member is not None and member.token:
@@ -402,13 +405,27 @@ async def commits(
 
 @router.get("/events", response_model=list[WebhookEventOut])
 async def events(
+    project_id: str,
     limit: int = 20,
-    _me: Member = Depends(require_member),
+    me: Member = Depends(require_member),
     session: AsyncSession = Depends(get_session),
 ) -> list[WebhookEventOut]:
+    """เฉพาะ event ของ repo ที่โปรเจคนี้ผูกอยู่ — และต้องเป็นสมาชิกโปรเจคถึงจะเห็น
+
+    เดิมคืนทุก event ให้ทุกคน ซึ่งพอเปิดสมัครบัญชีธรรมดาได้แปลว่าใครก็เห็นงานของทุกโปรเจค
+    """
+    project = await session.get(Project, project_id)
+    if project is None or me.id not in {m.id for m in project.members}:
+        raise HTTPException(404, f"Project {project_id} not found")
+    if not project.github_repo:
+        return []
+
     rows = list(
         await session.scalars(
-            select(WebhookEvent).order_by(desc(WebhookEvent.received_at)).limit(min(limit, 100))
+            select(WebhookEvent)
+            .where(WebhookEvent.repo == project.github_repo)
+            .order_by(desc(WebhookEvent.received_at))
+            .limit(min(limit, 100))
         )
     )
 
@@ -504,15 +521,17 @@ async def webhook(
             raise HTTPException(401, "Invalid signature")
 
     payload = await request.json()
+    repo = (payload.get("repository") or {}).get("full_name")
     rows = _summarize(x_github_event, payload)
     saved = [
-        WebhookEvent(event=x_github_event, summary=summary, actor=actor, url=url, task_ref=ref)
+        WebhookEvent(
+            event=x_github_event, summary=summary, actor=actor, url=url, task_ref=ref, repo=repo
+        )
         for summary, actor, url, ref in rows
     ]
     session.add_all(saved)
     await session.commit()
 
-    repo = (payload.get("repository") or {}).get("full_name")
     refs = [ref for *_, ref in rows if ref]
     status = _target_status(x_github_event, payload)
     branch, review_url = _code_location(x_github_event, payload)

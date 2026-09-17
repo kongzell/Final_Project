@@ -1,0 +1,50 @@
+/* ---------- หน้าล็อกอิน ---------- */
+
+.login {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 380px;
+  padding: 26px 26px 20px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-card);
+  box-shadow: var(--shadow);
+}
+
+.login-title { margin: 0; font-size: 21px; font-weight: 700; color: var(--text-strong); }
+.login-sub { margin: 4px 0 18px; font-size: 13.5px; line-height: 1.5; color: var(--text-dim); }
+
+.login-submit { width: 100%; justify-content: center; margin-top: 4px; }
+
+.login-switch { margin: 12px 0 0; font-size: 13.5px; color: var(--text-dim); text-align: center; }
+.login-switch button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.login-switch button:hover { text-decoration: underline; }
+
+/* เส้นคั่น "or" ระหว่างบัญชีธรรมดากับ GitHub */
+.login-or {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0 12px;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+.login-or::before, .login-or::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+
+.login-github { width: 100%; justify-content: center; text-decoration: none; }
+.login-hint { margin: 8px 0 0; font-size: 12px; line-height: 1.45; color: var(--text-faint); text-align: center; }

@@ -7,7 +7,7 @@
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.alias_generators import to_camel
 
 StatusId = Literal["todo", "in-progress", "review", "complete"]
@@ -37,6 +37,8 @@ class MemberOut(ApiModel):
     color: str
     github_login: str | None = None
     avatar_url: str | None = None
+    #: บัญชีแบบธรรมดา — null สำหรับคนที่มาจาก GitHub
+    username: str | None = None
 
 
 class MeOut(MemberOut):
@@ -47,6 +49,20 @@ class MeOut(MemberOut):
     """
 
     email: str | None = None
+
+
+class RegisterIn(ApiModel):
+    name: str = Field(min_length=1, max_length=120)
+    #: ตัวพิมพ์เล็ก ตัวเลข จุด ขีด ขีดล่าง 3-40 ตัว — เก็บเป็นตัวพิมพ์เล็กเสมอ
+    username: str = Field(min_length=3, max_length=40, pattern=r"^[A-Za-z0-9._-]+$")
+    password: str = Field(min_length=8, max_length=200)
+    #: อีเมลรับแจ้งเตือน ไม่บังคับ
+    email: str | None = Field(default=None, max_length=200)
+
+
+class LoginIn(ApiModel):
+    username: str = Field(min_length=1, max_length=40)
+    password: str = Field(min_length=1, max_length=200)
 
 
 # ---------- tasks ----------
@@ -64,6 +80,8 @@ class TaskCreate(ApiModel):
     complexity: Complexity | None = None
     #: id ของงานที่ต้องเสร็จก่อน — ตัวที่ไม่ได้อยู่ในโปรเจคเดียวกันจะถูกตัดทิ้ง
     depends_on: list[str] = Field(default_factory=list)
+    #: ไฟล์ในหน้า Documents ที่งานนี้แตกมาจาก — ย้อนกลับได้ว่ามาจาก TOR ฉบับไหน
+    source_file_id: str | None = None
 
 
 class TaskUpdate(ApiModel):
@@ -111,6 +129,8 @@ class TaskOut(ApiModel):
     actual_hours: float | None = None
     #: งานที่ต้องเสร็จก่อนใบนี้ถึงจะเริ่มได้ — ว่าง = เริ่มได้เลย ไม่ต้องรอใคร
     depends_on: list[str] = []
+    #: ไฟล์ต้นทางในหน้า Documents — null ถ้าสร้างเองหรือเอกสารถูกลบไปแล้ว
+    source_file_id: str | None = None
     #: branch ล่าสุดที่ commit ถึงงานนี้ (ไม่รวม branch หลัก)
     branch: str | None = None
     #: ลิงก์ PR ล่าสุดที่อ้างถึงงานนี้
@@ -196,6 +216,25 @@ class CaseOut(ApiModel):
     created_at: datetime
 
 
+class CaseCreate(ApiModel):
+    """สร้าง Document เปล่า — เหมือนสร้างโปรเจค ไฟล์ค่อยเพิ่มทีหลัง"""
+
+    title: str = Field(min_length=1, max_length=300)
+
+    @field_validator("title")
+    @classmethod
+    def _not_blank(cls, v: str) -> str:
+        # min_length นับช่องว่างด้วย "   " ผ่านได้ แล้วกลายเป็นชื่อว่างหลัง strip
+        v = v.strip()
+        if not v:
+            raise ValueError("title must not be blank")
+        return v
+    doc_number: str | None = Field(default=None, max_length=60)
+    agency: str | None = Field(default=None, max_length=160)
+    deadline: date | None = None
+    project_id: str | None = None
+
+
 class CaseUpdate(ApiModel):
     """ทุกฟิลด์ไม่บังคับ — ส่งมาเฉพาะอันที่จะแก้ ส่ง project_id เป็น null เพื่อถอดลิงก์"""
 
@@ -220,6 +259,11 @@ class BreakdownRequest(ApiModel):
     count: int = Field(default=5, ge=2, le=12)
 
 
+class FileBreakdownRequest(ApiModel):
+    context: str = Field(default="", max_length=1000)
+    count: int = Field(default=5, ge=2, le=12)
+
+
 class SubtaskSuggestion(ApiModel):
     title: str
     #: ขอบเขตงานสั้น ๆ ที่ AI เขียนให้ ไปลงช่อง Details ของการ์ด
@@ -229,9 +273,50 @@ class SubtaskSuggestion(ApiModel):
     estimate_hours: float
     complexity: Complexity
     reason: str = ""
+    #: กำหนดส่ง YYYY-MM-DD ที่ AI ดึงจากงวดงานในเอกสาร — ว่างเมื่อไม่มีกำหนด
+    #: responseSchema ของ Gemini ไม่รับ null จึงใช้สตริงว่างแทน
+    due_date: str = ""
+
+    @field_validator("due_date")
+    @classmethod
+    def _valid_date_or_blank(cls, v: str) -> str:
+        """โมเดลบางทีตอบ "30 days" หรือรูปแบบวันแปลก ๆ — ตัดทิ้งดีกว่าปล่อยให้สร้างงานพัง"""
+        v = (v or "").strip()
+        if not v:
+            return ""
+        try:
+            date.fromisoformat(v)
+        except ValueError:
+            return ""
+        return v
     #: ตำแหน่งของงานอื่นในลิสต์เดียวกันที่ต้องเสร็จก่อน (อ้างถอยหลังเท่านั้น)
     #: ใช้ index แทน id เพราะตอน AI ตอบกลับมา งานยังไม่ถูกสร้างจึงยังไม่มี id
     depends_on: list[int] = Field(default_factory=list)
+
+
+class FileMetadata(ApiModel):
+    """สิ่งที่ AI อ่านได้จากหน้าแรก ๆ ของเอกสาร — ไว้เติมฟอร์มให้ ผู้ใช้แก้ก่อนบันทึกได้"""
+
+    title: str = ""
+    doc_number: str = ""
+    agency: str = ""
+    #: YYYY-MM-DD หรือว่าง
+    deadline: str = ""
+    category: FileCategory = "other"
+    #: สรุป 1-2 ประโยคว่าเอกสารนี้เกี่ยวกับอะไร
+    summary: str = ""
+
+    @field_validator("deadline")
+    @classmethod
+    def _valid_deadline(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not v:
+            return ""
+        try:
+            date.fromisoformat(v)
+        except ValueError:
+            return ""
+        return v
 
 
 class BreakdownResult(ApiModel):
@@ -248,8 +333,10 @@ class BreakdownResult(ApiModel):
 # ---------- auth ----------
 
 class AuthStatus(ApiModel):
-    #: ตั้ง GITHUB_CLIENT_ID/SECRET แล้วหรือยัง
+    #: ตั้ง GITHUB_CLIENT_ID/SECRET แล้วหรือยัง — ปุ่ม "Sign in with GitHub" โชว์เมื่อ true
     configured: bool
+    #: เปิดให้สมัครบัญชีแบบธรรมดาไหม (ALLOW_SIGNUP)
+    signup_open: bool = True
     member: MeOut | None = None
 
 

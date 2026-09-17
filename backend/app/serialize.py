@@ -31,6 +31,7 @@ def task_out(task: Task) -> TaskOut:
         started_at=task.started_at,
         actual_hours=_actual_hours(task),
         depends_on=task.depends_on or [],
+        source_file_id=task.source_file_id,
         branch=task.branch,
         review_url=task.review_url,
     )

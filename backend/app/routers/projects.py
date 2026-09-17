@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import mailer, notify
 from app.auth import require_member
 from app.db import get_session
-from app.models import Member, Project, Task, project_members, task_assignees
+from app.models import CaseFile, Member, Project, Task, project_members, task_assignees
 from app.schemas import (
     MemberRoleUpdate,
     ProjectCreate,
@@ -240,6 +240,11 @@ async def create_task(
         valid = set(rows)
         depends_on = [t for t in payload.depends_on if t in valid]
 
+    # ไฟล์ต้นทางต้องมีจริง — id มั่วให้ตัดทิ้งเงียบ ๆ แบบเดียวกับ depends_on
+    source_file_id = None
+    if payload.source_file_id and await session.get(CaseFile, payload.source_file_id) is not None:
+        source_file_id = payload.source_file_id
+
     # วางต่อท้ายคอลัมน์ที่ระบุ
     last = await session.scalar(
         select(func.max(Task.position)).where(
@@ -267,6 +272,7 @@ async def create_task(
             estimate_hours=payload.estimate_hours,
             complexity=payload.complexity,
             depends_on=depends_on,
+            source_file_id=source_file_id,
         )
         session.add(task)
         try:

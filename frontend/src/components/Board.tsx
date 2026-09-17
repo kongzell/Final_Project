@@ -18,9 +18,13 @@ const blockersOf = (task: Task, project: Project): Blocker[] =>
     .filter((t) => t !== undefined)
     .map((t) => ({ key: taskKey(project.taskPrefix, t.number), done: t.status === "complete" }))
 
+/** ชื่อไฟล์ต้นทางของงาน ไว้โชว์ chip — App ทำ map จาก cases ให้ เพราะ Board ไม่รู้จักเรื่อง */
+export type SourceFileLookup = Map<string, { name: string; url: string }>
+
 type Props = {
   project: Project
   members: Member[]
+  sourceFiles: SourceFileLookup
   /** คำค้นจากช่องค้นหาบนแถบหัว */
   query: string
   filters: Filters
@@ -47,7 +51,7 @@ type Props = {
 }
 
 export function Board({
-  project, members, query, filters, groupBy, selectedTaskId, currentMemberId,
+  project, members, sourceFiles, query, filters, groupBy, selectedTaskId, currentMemberId,
   onClaimTask, onOpenTask,
   onSetSubtaskStatus, onAddTask, onChangeStatus, onToggleAssignee,
   onSetPriority, onSetDue, onSetCategory, onSetDescription, onDeleteTask, onAddMember,
@@ -133,6 +137,7 @@ export function Board({
               members={members}
               subtasks={project.tasks.filter((s) => s.parentId === t.id)}
               blockers={blockersOf(t, project)}
+              sourceFile={t.sourceFileId ? sourceFiles.get(t.sourceFileId) ?? null : null}
               taskPrefix={project.taskPrefix}
               githubRepo={project.githubRepo}
               canManage={canManage}

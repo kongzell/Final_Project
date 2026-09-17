@@ -119,15 +119,12 @@
 }
 .case-bar span { display: block; height: 100%; background: var(--status-complete); }
 
-/* ---------- แผงรายละเอียดเรื่อง ---------- */
 
-.case-detail .modal-head { align-items: flex-start; }
-.case-head-main { min-width: 0; flex: 1; }
-.case-head-actions { display: flex; align-items: center; gap: 8px; flex: none; }
-.case-detail .modal-title { display: inline-flex; align-items: center; gap: 8px; }
-.case-detail .modal-title.is-editable { cursor: text; border-radius: 6px; }
-.case-detail .modal-title.is-editable:hover { background: var(--bg-hover); }
-.case-rename { font-size: 18px; font-weight: 700; }
+/* ---------- workspace ที่เปิดอยู่ ---------- */
+.ws-head-main { min-width: 0; flex: 1; }
+.docs-title.is-editable { cursor: text; border-radius: 6px; padding: 0 4px; margin-left: -4px; }
+.docs-title.is-editable:hover { background: var(--bg-hover); }
+.case-rename { font-size: 18px; font-weight: 700; max-width: 520px; }
 .case-late-tag {
   margin-left: 8px;
   padding: 1px 7px;
@@ -137,21 +134,10 @@
   font-size: 11px;
   font-weight: 700;
 }
-
-.case-section-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.case-section-head .modal-h3 { display: inline-flex; align-items: center; gap: 6px; margin: 0; }
-.case-add-file { display: flex; align-items: center; gap: 6px; }
-
-/* select นอก .field ให้หน้าตาเดียวกับช่องกรอกใน modal — ไม่งั้นได้พื้นขาวของเบราว์เซอร์บนธีมมืด */
-.case-add-file select,
+.ws-add { display: flex; align-items: center; gap: 6px; flex: none; }
+.ws-add select,
 .case-project-pick {
-  padding: 6px 9px;
+  padding: 7px 9px;
   border: 1px solid var(--border-strong);
   border-radius: 8px;
   background: var(--bg-app);
@@ -159,84 +145,72 @@
   font: inherit;
   font-size: 13.5px;
 }
-.case-add-file select:focus,
-.case-project-pick:focus { outline: none; border-color: var(--accent); }
-
-.case-project { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; color: var(--accent-text); }
-.case-project-name { font-weight: 600; color: var(--text-strong); }
-.case-project-repo { font-family: var(--mono); font-size: 12.5px; color: var(--text-faint); }
-.case-project-pick { min-width: 260px; }
-.case-project .modal-hint { flex-basis: 100%; }
-
-/* ชื่อต้องไม่ซ้ำกับ .case-files (ป้ายนับไฟล์บนการ์ด) — เคยชนกันแล้ว flex-direction ทับจนไอคอนตกบรรทัด */
-.case-file-list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.case-file {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 9px;
+.ws-add select:focus, .case-project-pick:focus { outline: none; border-color: var(--accent); }
+.ws-note {
+  margin: 0 0 12px;
+  padding: 8px 11px;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 8px 8px 0;
+  background: var(--accent-soft);
+  font-size: 13px;
+  color: var(--text);
 }
+
+/* การ์ดไฟล์ 1 ฉบับ */
+.file-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-card);
+}
+.file-card:hover { border-color: var(--border-strong); }
+.file-card-top { display: flex; align-items: center; justify-content: space-between; }
 .case-file-cat {
-  flex: none;
-  min-width: 78px;
   padding: 2px 8px;
   border-radius: 999px;
   background: var(--accent-soft);
   color: var(--accent-text);
   font-size: 11px;
   font-weight: 700;
-  text-align: center;
   letter-spacing: 0.02em;
 }
-.case-file-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
-.case-file-name {
+.file-ver { font-family: var(--mono); font-size: 11.5px; color: var(--text-faint); }
+.file-card-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
   color: var(--text-strong);
+  font-size: 15px;
   font-weight: 600;
   text-decoration: none;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.case-file-name:hover { text-decoration: underline; }
-.case-file-meta { font-size: 12px; color: var(--text-faint); }
-.case-file-history { font-size: 11.5px; color: var(--text-faint); font-style: italic; }
-.case-file .member-action { margin-left: 0; text-decoration: none; }
-.case-file .member-action:disabled { opacity: 0.35; cursor: default; }
+.file-card-name:hover { text-decoration: underline; }
+.file-card-meta { margin: 0; font-size: 12.5px; color: var(--text-faint); }
+.file-card-history { margin: 0; font-size: 11.5px; color: var(--text-faint); font-style: italic; }
+.file-card-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--border); }
+.file-card-actions .member-action { margin-left: 0; text-decoration: none; }
+.file-card-actions .member-action:disabled { opacity: 0.35; cursor: default; }
+.file-card-actions .member-action.is-ai { color: var(--accent-text); border-color: var(--accent); white-space: nowrap; }
+.file-card-actions .member-action.is-ai:not(:disabled):hover { background: var(--accent-soft); }
 
-.case-members { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
-.case-member {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px 4px 4px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  font-size: 13px;
-}
-
-.case-delete { margin-right: auto; color: var(--danger); border-color: transparent; }
-.case-delete:hover { background: rgba(229, 72, 77, 0.12); }
-
-/* ---------- ช่องวางไฟล์ในหน้าต่างเพิ่มเอกสาร ---------- */
-.doc-drop {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  margin: 8px 0 14px;
-  padding: 22px 16px;
-  border: 1.5px dashed var(--border-strong);
-  border-radius: 10px;
-  background: none;
-  color: var(--text-dim);
-  font: inherit;
-  font-size: 13.5px;
-  cursor: pointer;
-}
-.doc-drop:hover, .doc-drop.is-over { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
-.doc-drop.has-file { border-style: solid; border-color: var(--accent); color: var(--text-strong); }
-.doc-drop-name { font-weight: 600; }
-.doc-drop-size { margin-left: 6px; font-weight: 400; color: var(--text-faint); }
+/* แผงขวาของ workspace */
+.ws-field { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.ws-field-label { font-size: 11.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-faint); }
+.ws-field-value { font-size: 13.5px; color: var(--text); }
+.ws-field .field-input { padding: 6px 9px; font-size: 13.5px; }
+.ws-project { display: flex; flex-direction: column; gap: 6px; }
+.case-project-name { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: var(--text-strong); }
+.case-project-repo { font-family: var(--mono); font-size: 12px; color: var(--text-faint); }
+.ws-project-actions { display: flex; gap: 6px; margin-top: 4px; }
+.ws-member { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
+.ws-add-member { width: 100%; justify-content: center; margin-top: 8px; }
+.ws-delete { width: 100%; justify-content: center; margin-top: 4px; }
+.case-status.is-btn { padding: 3px 9px; border: 1px solid var(--border-strong); border-radius: 999px; cursor: pointer; }
+.case-status.is-btn:hover { background: var(--bg-hover); }

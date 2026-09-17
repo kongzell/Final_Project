@@ -14,6 +14,8 @@ export type SubtaskSuggestion = {
   reason: string
   /** ตำแหน่งของงานอื่นในชุดเดียวกันที่ต้องเสร็จก่อน (อ้างถอยหลังเสมอ) */
   dependsOn: number[]
+  /** กำหนดส่ง YYYY-MM-DD ที่ AI ดึงจากงวดงาน — สตริงว่างเมื่อไม่มี */
+  dueDate: string
 }
 
 export type BreakdownResult = {
@@ -80,26 +82,20 @@ export async function getCases(): Promise<Case[]> {
 }
 
 export type NewCase = {
-  file: File
-  category: FileCategory
-  title?: string
+  title: string
   docNumber?: string
   agency?: string
   deadline?: string
   projectId?: string
 }
 
-/** อัปโหลดไฟล์แรก = สร้างเรื่องใหม่ */
+/** สร้าง Document เปล่า (พื้นที่ทำงาน) — ไฟล์ค่อยเพิ่มทีหลังด้วย addCaseFile */
 export async function createCase(input: NewCase): Promise<Case> {
-  const form = new FormData()
-  form.append("file", input.file)
-  form.append("category", input.category)
-  if (input.title) form.append("title", input.title)
-  if (input.docNumber) form.append("doc_number", input.docNumber)
-  if (input.agency) form.append("agency", input.agency)
-  if (input.deadline) form.append("deadline", input.deadline)
-  if (input.projectId) form.append("project_id", input.projectId)
-  const res = await fetch("/api/cases", { method: "POST", body: form })
+  const res = await fetch("/api/cases", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  })
   if (!res.ok) throw new ApiError(await readError(res), res.status)
   return res.json()
 }
@@ -153,6 +149,39 @@ export async function deleteCaseFile(caseId: string, fileId: string): Promise<vo
 export const caseFileUrl = (caseId: string, fileId: string) =>
   `/api/cases/${caseId}/files/${fileId}`
 
+/** สิ่งที่ AI อ่านได้จากเอกสาร — ไว้เติมฟอร์มเพิ่มเอกสาร ผู้ใช้แก้ก่อนบันทึกได้ */
+export type FileMetadata = {
+  title: string
+  docNumber: string
+  agency: string
+  /** YYYY-MM-DD หรือว่าง */
+  deadline: string
+  category: FileCategory
+  summary: string
+}
+
+/** ให้ AI อ่านไฟล์ที่อัปโหลดไว้แล้ว — ยังไม่บันทึกอะไร (1 คำขอ Gemini) */
+export async function extractFileMetadata(caseId: string, fileId: string): Promise<FileMetadata> {
+  const res = await fetch(`/api/cases/${caseId}/files/${fileId}/extract`, { method: "POST" })
+  if (!res.ok) throw new ApiError(await readError(res), res.status)
+  return res.json()
+}
+
+/** ให้ AI อ่านไฟล์แล้วเสนอการ์ดงาน — ผลลัพธ์รูปแบบเดียวกับแตกจากข้อความ */
+export async function breakdownFile(
+  caseId: string,
+  fileId: string,
+  context: string,
+): Promise<BreakdownResult> {
+  const res = await fetch(`/api/cases/${caseId}/files/${fileId}/breakdown`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ context }),
+  })
+  if (!res.ok) throw new ApiError(await readError(res), res.status)
+  return res.json()
+}
+
 export async function addCaseMember(caseId: string, memberId: string): Promise<void> {
   const res = await fetch(`/api/cases/${caseId}/members/${memberId}`, { method: "POST" })
   if (!res.ok) throw new ApiError(await readError(res), res.status)
@@ -187,6 +216,7 @@ type ApiTask = {
   startedAt: string | null
   actualHours: number | null
   dependsOn: string[]
+  sourceFileId: string | null
   branch: string | null
   reviewUrl: string | null
   parentId: string | null
@@ -222,6 +252,7 @@ const toTask = (t: ApiTask): Task => ({
   startedAt: t.startedAt,
   actualHours: t.actualHours,
   dependsOn: t.dependsOn ?? [],
+  sourceFileId: t.sourceFileId ?? null,
   branch: t.branch,
   reviewUrl: t.reviewUrl,
   parentId: t.parentId,
@@ -315,6 +346,8 @@ export type NewTask = {
   complexity?: "low" | "medium" | "high" | null
   /** id ของงานที่ต้องเสร็จก่อน — ฝั่ง API ตัดตัวที่ไม่ได้อยู่ในโปรเจคเดียวกันทิ้ง */
   dependsOn?: string[]
+  /** ไฟล์ต้นทางในหน้า Documents ที่งานนี้แตกมาจาก */
+  sourceFileId?: string | null
 }
 
 export async function createTask(projectId: string, task: NewTask): Promise<Task> {
@@ -364,13 +397,42 @@ export type AuthMember = {
   avatarUrl: string | null
   /** อีเมลรับแจ้งเตือน — null คือไม่รับ */
   email: string | null
+  /** บัญชีแบบธรรมดา — null สำหรับคนที่มาจาก GitHub */
+  username: string | null
 }
 
 export type AuthStatus = {
-  /** ตั้ง GITHUB_CLIENT_ID/SECRET แล้วหรือยัง */
+  /** ตั้ง GITHUB_CLIENT_ID/SECRET แล้วหรือยัง — ปุ่ม GitHub โชว์เมื่อ true */
   configured: boolean
-  /** เปิดปุ่มเข้าสู่ระบบสำหรับทดสอบไว้หรือไม่ */
+  /** เปิดให้สมัครบัญชีแบบธรรมดาไหม (ALLOW_SIGNUP ฝั่ง API) */
+  signupOpen: boolean
   member: AuthMember | null
+}
+
+/** ล็อกอินบัญชีธรรมดา — cookie ถูกตั้งให้โดย API เหมือน GitHub */
+export async function login(username: string, password: string): Promise<AuthMember> {
+  const res = await fetch("/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  })
+  if (!res.ok) throw new ApiError(await readError(res), res.status)
+  return res.json()
+}
+
+export async function register(input: {
+  name: string
+  username: string
+  password: string
+  email?: string
+}): Promise<AuthMember> {
+  const res = await fetch("/api/auth/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  })
+  if (!res.ok) throw new ApiError(await readError(res), res.status)
+  return res.json()
 }
 
 export async function getAuthStatus(): Promise<AuthStatus> {
@@ -501,14 +563,14 @@ export async function applySuggestion(eventId: string): Promise<void> {
   if (!res.ok) throw new ApiError(await readError(res), res.status)
 }
 
-export async function getCommits(limit = 8): Promise<Commit[]> {
-  const res = await fetch(`/api/github/commits?limit=${limit}`)
+export async function getCommits(projectId: string, limit = 8): Promise<Commit[]> {
+  const res = await fetch(`/api/github/commits?project_id=${projectId}&limit=${limit}`)
   if (!res.ok) throw new ApiError(await readError(res), res.status)
   return res.json()
 }
 
-export async function getWebhookEvents(limit = 10): Promise<WebhookEvent[]> {
-  const res = await fetch(`/api/github/events?limit=${limit}`)
+export async function getWebhookEvents(projectId: string, limit = 10): Promise<WebhookEvent[]> {
+  const res = await fetch(`/api/github/events?project_id=${projectId}&limit=${limit}`)
   if (!res.ok) throw new ApiError(await readError(res), res.status)
   return res.json()
 }

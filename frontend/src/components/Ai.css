@@ -238,3 +238,21 @@
   font-weight: 600;
   color: var(--text-dim);
 }
+
+/* ---------- แตกงานจากไฟล์ ---------- */
+.ai-source {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 9px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  color: var(--accent-text);
+}
+.ai-source-name { font-weight: 600; color: var(--text-strong); }
+.ai-source-case { margin-left: auto; font-size: 12.5px; color: var(--text-faint); }
+
+/* กำหนดส่งที่ AI ดึงจากงวดงาน */
+.ai-due { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; color: var(--text-dim); }
+.ai-in-date { flex: 0 0 140px !important; }

@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import type { NewCase } from "../api"
-import type { FileCategory, Project } from "../types"
-import { FILE_CATEGORIES, formatBytes } from "../types"
-import { IconClose, IconUpload } from "./Icons"
+import type { Project } from "../types"
+import { IconClose, IconFolder } from "./Icons"
 import "./Modal.css"
 import "./Documents.css"
 
@@ -17,19 +16,15 @@ type Props = {
   onCreate: (input: NewCase) => Promise<void>
 }
 
-/** อัปโหลดไฟล์แรก = สร้างเรื่องใหม่ — ชื่อเรื่องเติมจากชื่อไฟล์ให้ก่อน แก้ได้ */
-export function AddDocumentModal({ linkable, onClose, onCreate }: Props) {
-  const [file, setFile] = useState<File | null>(null)
-  const [category, setCategory] = useState<FileCategory>("tor")
+/** สร้าง Document (พื้นที่ทำงาน) ด้วยชื่อ — เหมือน New Project ไฟล์ค่อยเพิ่มข้างใน */
+export function NewDocumentModal({ linkable, onClose, onCreate }: Props) {
   const [title, setTitle] = useState("")
   const [docNumber, setDocNumber] = useState("")
   const [agency, setAgency] = useState("")
   const [deadline, setDeadline] = useState("")
   const [projectId, setProjectId] = useState("")
-  const [dragging, setDragging] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose()
@@ -37,27 +32,13 @@ export function AddDocumentModal({ linkable, onClose, onCreate }: Props) {
     return () => document.removeEventListener("keydown", onKey)
   }, [onClose])
 
-  const pick = (f: File | null) => {
-    setError(null)
-    if (!f) return
-    if (f.size > MAX_BYTES) {
-      setError(`${f.name} is ${formatBytes(f.size)} — the limit is 5 MB`)
-      return
-    }
-    setFile(f)
-    // ชื่อเรื่องตั้งต้นจากชื่อไฟล์ตัดนามสกุล — ถ้าผู้ใช้พิมพ์เองไว้แล้วไม่ทับ
-    if (!title.trim()) setTitle(f.name.replace(/\.[^.]+$/, ""))
-  }
-
   const submit = async () => {
-    if (!file || busy) return
+    if (!title.trim() || busy) return
     setBusy(true)
     setError(null)
     try {
       await onCreate({
-        file,
-        category,
-        title: title.trim() || undefined,
+        title: title.trim(),
         docNumber: docNumber.trim() || undefined,
         agency: agency.trim() || undefined,
         deadline: deadline || undefined,
@@ -65,7 +46,7 @@ export function AddDocumentModal({ linkable, onClose, onCreate }: Props) {
       })
       onClose()
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Upload failed")
+      setError(e instanceof Error ? e.message : "Could not create the document")
     } finally {
       setBusy(false)
     }
@@ -77,12 +58,12 @@ export function AddDocumentModal({ linkable, onClose, onCreate }: Props) {
         className="modal"
         role="dialog"
         aria-modal="true"
-        aria-label="Add document"
+        aria-label="New document"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <header className="modal-head">
           <div>
-            <h2 className="modal-title">Add document</h2>
+            <h2 className="modal-title"><IconFolder size={16} /> New document</h2>
           </div>
           <button type="button" className="modal-close" onClick={onClose} title="Close">
             <IconClose size={16} />
@@ -90,94 +71,40 @@ export function AddDocumentModal({ linkable, onClose, onCreate }: Props) {
         </header>
 
         <div className="modal-body">
-          <button
-            type="button"
-            className={"doc-drop" + (dragging ? " is-over" : "") + (file ? " has-file" : "")}
-            onClick={() => inputRef.current?.click()}
-            onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={(e) => {
-              e.preventDefault()
-              setDragging(false)
-              pick(e.dataTransfer.files[0] ?? null)
-            }}
-          >
-            <IconUpload size={22} />
-            {file ? (
-              <span className="doc-drop-name">
-                {file.name} <span className="doc-drop-size">{formatBytes(file.size)}</span>
-              </span>
-            ) : (
-              <span>Drop a file here or click to choose · PDF, Word, Excel, image · up to 5 MB</span>
-            )}
-          </button>
-          <input
-            ref={inputRef}
-            type="file"
-            accept={ACCEPT}
-            hidden
-            onChange={(e) => pick(e.target.files?.[0] ?? null)}
-          />
-
-          <div className="field-grid">
-            <label className="field">
-              <span className="field-label">Category</span>
-              <select value={category} onChange={(e) => setCategory(e.target.value as FileCategory)}>
-                {FILE_CATEGORIES.map((c) => (
-                  <option key={c.id} value={c.id}>{c.label}</option>
-                ))}
-              </select>
-            </label>
-            <label className="field">
-              <span className="field-label">Deadline (optional)</span>
-              <input
-                className="field-input"
-                type="date"
-                value={deadline}
-                onChange={(e) => setDeadline(e.target.value)}
-              />
-            </label>
-          </div>
-
           <label className="field">
-            <span className="field-label">Title</span>
+            <span className="field-label">Name</span>
             <input
+              autoFocus
               className="field-input"
-              placeholder="Filled in from the file name"
+              placeholder="e.g. TOR ระบบจองห้องประชุม"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && void submit()}
             />
           </label>
 
           <div className="field-grid">
             <label className="field">
               <span className="field-label">Doc number (optional)</span>
-              <input
-                className="field-input"
-                placeholder="01/1234"
-                value={docNumber}
-                onChange={(e) => setDocNumber(e.target.value)}
-              />
+              <input className="field-input" placeholder="01/1234" value={docNumber} onChange={(e) => setDocNumber(e.target.value)} />
             </label>
             <label className="field">
-              <span className="field-label">Agency (optional)</span>
-              <input
-                className="field-input"
-                placeholder="Who sent it"
-                value={agency}
-                onChange={(e) => setAgency(e.target.value)}
-              />
+              <span className="field-label">Deadline (optional)</span>
+              <input className="field-input" type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
             </label>
           </div>
 
           <label className="field">
-            <span className="field-label">Project (optional — link later from the document)</span>
+            <span className="field-label">Agency (optional)</span>
+            <input className="field-input" placeholder="Who sent it" value={agency} onChange={(e) => setAgency(e.target.value)} />
+          </label>
+
+          <label className="field">
+            <span className="field-label">Project (optional — link later from the panel)</span>
             <select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
               <option value="">— No project yet —</option>
               {linkable.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}{p.githubRepo ? ` · ${p.githubRepo}` : ""}
-                </option>
+                <option key={p.id} value={p.id}>{p.name}{p.githubRepo ? ` · ${p.githubRepo}` : ""}</option>
               ))}
             </select>
           </label>
@@ -187,13 +114,8 @@ export function AddDocumentModal({ linkable, onClose, onCreate }: Props) {
 
         <footer className="modal-foot">
           <button type="button" className="btn" onClick={onClose}>Cancel</button>
-          <button
-            type="button"
-            className="btn btn-primary"
-            disabled={!file || busy}
-            onClick={() => void submit()}
-          >
-            {busy ? "Uploading..." : "Create"}
+          <button type="button" className="btn btn-primary" disabled={!title.trim() || busy} onClick={() => void submit()}>
+            {busy ? "Creating..." : "Create"}
           </button>
         </footer>
       </div>

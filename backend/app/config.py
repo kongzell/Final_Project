@@ -1,3 +1,4 @@
+from datetime import timedelta, timezone
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -34,6 +35,9 @@ class Settings(BaseSettings):
     github_client_secret: str = ""
     #: ต้องตรงกับ Authorization callback URL ที่ตั้งไว้บน GitHub เป๊ะ ๆ
     github_callback_url: str = "http://localhost:8081/api/auth/github/callback"
+    #: เปิดให้สมัครบัญชีแบบธรรมดาเองได้ไหม — ปิดเมื่ออยากให้มีแต่คนที่ถูกสร้างไว้แล้ว
+    allow_signup: bool = True
+
     #: repo ที่จะดึง commit มาแสดง เช่น "kongzell008/follow-up"
     github_repo: str = ""
     #: secret ที่ตั้งไว้ตอนสร้าง webhook บน GitHub (ใช้ตรวจลายเซ็น)
@@ -100,3 +104,8 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+#: เขตเวลาที่ใช้ตัดสินว่า "วันนี้" คือวันไหน — ผู้ใช้อยู่ไทย แต่คอนเทนเนอร์รันเป็น UTC
+#: offset ตายตัวเพราะไทยไม่มี daylight saving และ image ไม่ได้ลง tzdata
+LOCAL_TZ = timezone(timedelta(hours=7))

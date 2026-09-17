@@ -8,8 +8,8 @@ import { Avatar } from "./Avatar"
 import { TaskComments } from "./TaskComments"
 import { Menu, MenuItem, MenuLabel } from "./Menu"
 import {
-  IconCalendar, IconCheck, IconDots, IconFlag, IconGithub, IconHand, IconPencil, IconPlus,
-  IconTrash, IconUser,
+  IconCalendar, IconCheck, IconDots, IconFile, IconFlag, IconGithub, IconHand, IconPencil,
+  IconPlus, IconTrash, IconUser,
 } from "./Icons"
 
 /** งานที่การ์ดใบนี้รออยู่ — Board คำนวณมาให้เพราะมันเห็นงานทั้งโปรเจค */
@@ -23,6 +23,8 @@ type Props = {
   subtasks: Task[]
   /** งานที่ต้องเสร็จก่อนใบนี้จะเริ่มได้ — ว่าง = ไม่ต้องรอใคร */
   blockers: Blocker[]
+  /** ไฟล์ในหน้า Documents ที่งานนี้แตกมาจาก — null ถ้าสร้างเอง */
+  sourceFile: { name: string; url: string } | null
   /** รหัสย่อของโปรเจค ใช้ประกอบเป็นรหัสงาน */
   taskPrefix: string
   /** repo ของโปรเจค ใช้ประกอบลิงก์ compare ตอนมีแค่ชื่อ branch */
@@ -53,7 +55,8 @@ const fmtDue = (iso: string) =>
   new Date(iso + "T00:00:00").toLocaleDateString("th-TH", { day: "numeric", month: "short" })
 
 export function TaskCard({
-  task, members, subtasks, blockers, taskPrefix, githubRepo, canManage, currentMemberId, expanded,
+  task, members, subtasks, blockers, sourceFile, taskPrefix, githubRepo, canManage, currentMemberId,
+  expanded,
   canClaim, onClaim, onOpen,
   onToggleSubtaskAssignee, onSetSubtaskStatus, onChangeStatus, onToggleAssignee,
   onSetPriority, onSetDue, onSetCategory, onSetDescription, onDelete, onAddMember,
@@ -217,6 +220,19 @@ export function TaskCard({
             <span className="card-cx" style={{ color: complexity.color }}>{complexity.label}</span>
           )}
         </div>
+      )}
+
+      {sourceFile && (
+        <a
+          className="card-source"
+          href={sourceFile.url}
+          target="_blank"
+          rel="noreferrer"
+          title="Open the document this task was created from"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <IconFile size={12} /> from {sourceFile.name}
+        </a>
       )}
 
       {code && (

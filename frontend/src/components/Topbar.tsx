@@ -14,6 +14,8 @@ import "./Topbar.css"
 type Props = {
   /** อยู่หน้า Documents — breadcrumb เปลี่ยน และซ่อนของที่เป็นของโปรเจค */
   documents?: boolean
+  /** ชื่อ Document ที่เปิดอยู่ — ต่อท้าย breadcrumb เหมือนชื่อโปรเจค */
+  documentName?: string | null
   project: Project | null
   projects: Project[]
   taskCount: number
@@ -40,6 +42,7 @@ type Props = {
 
 export function Topbar({
   documents = false,
+  documentName = null,
   project, projects, taskCount, query, searchRef, starred, collapsed, theme,
   canDelete, groupBy, auth, onChangeGroupBy, onLogout, onChangeRole, onChangeEmail,
   onQueryChange,
@@ -59,9 +62,17 @@ export function Topbar({
 
         <nav className="tb-crumbs">
           {documents ? (
-            <span className="tb-crumb tb-crumb-current">
-              <span className="tb-crumb-badge"><IconFolder size={11} /></span> Documents
-            </span>
+            <>
+              <span className={"tb-crumb" + (documentName ? "" : " tb-crumb-current")}>
+                <span className="tb-crumb-badge"><IconFolder size={11} /></span> Documents
+              </span>
+              {documentName && (
+                <>
+                  <span className="tb-sep">/</span>
+                  <span className="tb-crumb tb-crumb-current"><IconFolder size={14} /> {documentName}</span>
+                </>
+              )}
+            </>
           ) : (
           <>
           <span className="tb-crumb">

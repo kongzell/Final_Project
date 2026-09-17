@@ -41,7 +41,14 @@ export function RightSidebar({
           canManage={canManage}
         />
       )}
-      <GithubActivity onOpenTaskRef={onOpenTaskRef} canManage={canManage} />
+      {project && (
+        <GithubActivity
+          key={project.id}
+          projectId={project.id}
+          onOpenTaskRef={onOpenTaskRef}
+          canManage={canManage}
+        />
+      )}
       <HealthBar />
     </aside>
   )
@@ -226,9 +233,12 @@ function ago(iso: string): string {
 const POLL_MS = 5 * 60 * 1000
 
 function GithubActivity({
+  projectId,
   onOpenTaskRef,
   canManage,
 }: {
+  /** ฟีดเป็นของโปรเจคที่ดูอยู่ — key ตาม id ให้ remount ตอนสลับโปรเจค */
+  projectId: string
   onOpenTaskRef: (ref: string) => void
   canManage: boolean
 }) {
@@ -258,7 +268,7 @@ function GithubActivity({
 
     const load = async () => {
       setLoading(true)
-      const [c, e] = await Promise.allSettled([getCommits(6), getWebhookEvents(8)])
+      const [c, e] = await Promise.allSettled([getCommits(projectId, 6), getWebhookEvents(projectId, 8)])
       if (!alive) return
 
       setCommits(c.status === "fulfilled" ? c.value : [])
@@ -285,7 +295,7 @@ function GithubActivity({
       alive = false
       clearInterval(timer)
     }
-  }, [tick])
+  }, [tick, projectId])
 
   const rows: FeedRow[] = [
     ...events.map((e) => ({

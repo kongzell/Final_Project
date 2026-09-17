@@ -9,20 +9,30 @@
 
 from __future__ import annotations
 
-from datetime import date
+import logging
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Response, UploadFile
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import ai, mailer, notify
 from app.auth import require_member
 from app.db import get_session
 from app.models import Case, CaseFile, Member, Project, case_members
-from app.schemas import CaseOut, CaseUpdate, MemberRoleUpdate
+from app.schemas import (
+    BreakdownResult,
+    CaseCreate,
+    CaseOut,
+    CaseUpdate,
+    FileBreakdownRequest,
+    FileMetadata,
+    MemberRoleUpdate,
+)
 from app.serialize import case_out
 
 router = APIRouter(prefix="/api/cases", tags=["documents"])
+log = logging.getLogger("notify")
 
 #: เพดานต่อไฟล์ — Neon ฟรีมีที่ 0.5 GB ทั้งฐานข้อมูล ไม่ใช่แค่ไฟล์
 MAX_FILE_BYTES = 5 * 1024 * 1024
@@ -102,48 +112,24 @@ async def list_cases(
 
 @router.post("", response_model=CaseOut, status_code=201)
 async def create_case(
-    file: UploadFile = File(...),
-    category: str = Form("other"),
-    title: str | None = Form(None),
-    doc_number: str | None = Form(None),
-    agency: str | None = Form(None),
-    deadline: str | None = Form(None),
-    project_id: str | None = Form(None),
+    payload: CaseCreate,
     me: Member = Depends(require_member),
     session: AsyncSession = Depends(get_session),
 ) -> CaseOut:
-    """อัปโหลดไฟล์แรก = สร้างเรื่องใหม่ — ชื่อเรื่องตั้งต้นจากชื่อไฟล์ถ้าไม่ได้ส่งมา
+    """สร้าง Document เปล่าด้วยชื่อ — เหมือนสร้างโปรเจค คนสร้างเป็นเจ้าของและสมาชิกคนแรก
 
-    รับเป็น form ไม่ใช่ JSON เพราะมีไฟล์แนบมาด้วยในคำขอเดียว
+    ไฟล์เพิ่มทีหลังผ่าน /files ทีละฉบับ จะเกี่ยวกับโปรเจคหรือไม่ก็ได้
     """
-    data, content_type, filename = await _read_upload(file)
-    cat = _check_category(category)
-
     case = Case(
-        title=(title or "").strip() or filename.rsplit(".", 1)[0],
-        doc_number=(doc_number or "").strip() or None,
-        agency=(agency or "").strip() or None,
+        title=payload.title.strip(),
+        doc_number=(payload.doc_number or "").strip() or None,
+        agency=(payload.agency or "").strip() or None,
+        deadline=payload.deadline,
         owner_id=me.id,
     )
-    if deadline:
-        try:
-            case.deadline = date.fromisoformat(deadline)
-        except ValueError:
-            raise HTTPException(422, "deadline must be YYYY-MM-DD") from None
-    if project_id:
-        case.project_id = (await _linkable_project(session, project_id, me)).id
-
+    if payload.project_id:
+        case.project_id = (await _linkable_project(session, payload.project_id, me)).id
     case.members.append(me)
-    case.files.append(
-        CaseFile(
-            filename=filename,
-            content_type=content_type,
-            size=len(data),
-            category=cat,
-            data=data,
-            uploaded_by=me.id,
-        )
-    )
     session.add(case)
     await session.commit()
     await session.refresh(case)
@@ -206,6 +192,7 @@ async def delete_case(
 @router.post("/{case_id}/files", response_model=CaseOut, status_code=201)
 async def add_file(
     case_id: str,
+    background: BackgroundTasks,
     file: UploadFile = File(...),
     category: str = Form("other"),
     replaces_id: str | None = Form(None),
@@ -228,20 +215,29 @@ async def add_file(
         version = prev.version + 1
         cat = prev.category
 
-    case.files.append(
-        CaseFile(
-            filename=filename,
-            content_type=content_type,
-            size=len(data),
-            category=cat,
-            version=version,
-            replaces_id=replaces_id or None,
-            data=data,
-            uploaded_by=me.id,
-        )
+    new_file = CaseFile(
+        filename=filename,
+        content_type=content_type,
+        size=len(data),
+        category=cat,
+        version=version,
+        replaces_id=replaces_id or None,
+        data=data,
+        uploaded_by=me.id,
     )
+    case.files.append(new_file)
     await session.commit()
     await session.refresh(case)
+
+    # แจ้งสมาชิกคนอื่นในเรื่อง — คนอัปโหลดเองไม่ต้องรับ
+    to = await notify.case_emails(session, case_id, exclude={me.id})
+    if to:
+        subject, body = notify.file_added(case, new_file, me)
+        background.add_task(mailer.send, to, subject, body)
+    else:
+        candidates = len([m for m in case.members if m.id != me.id])
+        log.info("file_added %s — ไม่ส่งแจ้งเตือน: ผู้ที่ควรได้รับ %d คน แต่กรอกอีเมลไว้ 0 คน", new_file.filename, candidates)
+
     return case_out(case)
 
 
@@ -276,15 +272,54 @@ async def delete_file(
     me: Member = Depends(require_member),
     session: AsyncSession = Depends(get_session),
 ) -> None:
-    """เจ้าของเรื่องเท่านั้น และห้ามลบไฟล์สุดท้าย — เรื่องที่ไม่มีเอกสารเลยไม่มีความหมาย"""
+    """เจ้าของเท่านั้น — ไฟล์ที่ถูกฉบับใหม่แทนที่อยู่จะหลุดเป็นฉบับปัจจุบันแทน (replaces_id SET NULL)"""
     case = await _get_owned_case(session, case_id, me)
     f = next((x for x in case.files if x.id == file_id), None)
     if f is None:
         raise HTTPException(404, "File not found")
-    if len(case.files) == 1:
-        raise HTTPException(400, "A document needs at least one file — delete the whole document instead")
     await session.delete(f)
     await session.commit()
+
+
+@router.post("/{case_id}/files/{file_id}/extract", response_model=FileMetadata)
+async def extract_metadata(
+    case_id: str,
+    file_id: str,
+    me: Member = Depends(require_member),
+    session: AsyncSession = Depends(get_session),
+) -> FileMetadata:
+    """ให้ AI อ่านไฟล์ที่อัปโหลดไว้แล้ว เสนอเลขที่/หน่วยงาน/กำหนดส่ง — ยังไม่บันทึก หน้าเว็บเอาไปเติมเอง"""
+    case = await _get_case(session, case_id, me)
+    f = next((x for x in case.files if x.id == file_id), None)
+    if f is None:
+        raise HTTPException(404, "File not found")
+    return await ai.extract_metadata(f.filename, f.content_type, f.data)
+
+
+@router.post("/{case_id}/files/{file_id}/breakdown", response_model=BreakdownResult)
+async def breakdown_file(
+    case_id: str,
+    file_id: str,
+    payload: FileBreakdownRequest,
+    me: Member = Depends(require_member),
+    session: AsyncSession = Depends(get_session),
+) -> BreakdownResult:
+    """ให้ AI อ่านไฟล์นี้แล้วเสนอการ์ดงาน — ยังไม่สร้างอะไร หน้าเว็บให้ผู้ใช้ตรวจก่อน
+
+    ต้องผูกโปรเจคก่อนและคนกดต้องสร้างงานในโปรเจคนั้นได้ ไม่งั้นเสนอไปก็เอาไปลงที่ไหนไม่ได้
+    เป็น opt-in ต่อไฟล์ เพราะกินโควตา Gemini และเนื้อหาออกไปนอกระบบ
+    """
+    case = await _get_case(session, case_id, me)
+    if case.project_id is None:
+        raise HTTPException(400, "Link a project to this document first")
+    if case.project is None or not case.project.can_manage(me.id):
+        raise HTTPException(403, "You need to be the owner or an admin of the linked project")
+    f = next((x for x in case.files if x.id == file_id), None)
+    if f is None:
+        raise HTTPException(404, "File not found")
+    return await ai.breakdown(
+        case.title, payload.context, payload.count, attachment=(f.filename, f.content_type, f.data)
+    )
 
 
 # ---------- สมาชิกของเรื่อง (ล้อกับโปรเจค) ----------

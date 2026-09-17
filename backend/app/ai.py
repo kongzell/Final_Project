@@ -5,14 +5,17 @@
 ไม่ต้องมานั่งแกะ markdown code fence
 """
 
+import base64
 import json
 import logging
 
 import httpx
 from fastapi import HTTPException
 
-from app.config import get_settings
-from app.schemas import BreakdownResult, SubtaskSuggestion
+from datetime import datetime
+
+from app.config import LOCAL_TZ, get_settings
+from app.schemas import BreakdownResult, FileMetadata, SubtaskSuggestion
 
 log = logging.getLogger("ai")
 
@@ -41,6 +44,7 @@ RESPONSE_SCHEMA = {
                     "complexity": {"type": "string", "enum": COMPLEXITIES},
                     "reason": {"type": "string"},
                     "dependsOn": {"type": "array", "items": {"type": "integer"}},
+                    "dueDate": {"type": "string"},
                 },
                 "required": [
                     "title", "description", "category", "tags", "estimateHours", "complexity",
@@ -54,7 +58,8 @@ RESPONSE_SCHEMA = {
 PROMPT = """You are a tech lead breaking work down for a software team.
 
 The request: "{title}"
-{context}
+{attachment_note}{context}
+Today is {today}.
 
 Break it into subtasks that can actually be picked up and checked off:
 
@@ -82,6 +87,11 @@ Break it into subtasks that can actually be picked up and checked off:
    finished before this one can start. Only reference positions BEFORE this one.
    {depends_rule}
 
+9b. dueDate is the delivery date of this subtask as YYYY-MM-DD, taken from the schedule,
+    milestones or phases (งวดงาน) that the request or attached document gives — put each
+    subtask under the milestone it belongs to. Turn relative durations like "within 30 days"
+    into a date counted from today. Leave dueDate as an empty string when nothing in the
+    request says when it is due; never invent a date
 10. style is the way you actually split the work: "vertical" or "layered".
     styleReason is one line, in the same language as the request, on why that way fits
     THIS request — write it even when the way was given to you
@@ -250,7 +260,22 @@ def _first_message(body: str) -> str:
     return text[:160] if text else "ไม่มีรายละเอียดเพิ่มเติม"
 
 
-async def breakdown(title: str, context: str = "", count: int = 5) -> BreakdownResult:
+#: ชนิดไฟล์ที่ Gemini อ่านได้ตรง ๆ แบบ inline — Word/Excel ไม่อยู่ในนี้ ต้องแปลงเป็น PDF ก่อน
+READABLE_TYPES = {"application/pdf", "image/png", "image/jpeg", "text/plain"}
+
+
+async def breakdown(
+    title: str,
+    context: str = "",
+    count: int = 5,
+    attachment: tuple[str, str, bytes] | None = None,
+) -> BreakdownResult:
+    """แตกงานจากข้อความ หรือจากเอกสารแนบ (filename, content_type, bytes)
+
+    ตอนแนบไฟล์ title เป็นชื่อเรื่อง ส่วนเนื้อหางานจริงอยู่ในไฟล์ — ส่งให้ Gemini เป็น inline
+    data ในคำขอเดียวกับ prompt ไม่ต้องดึงข้อความออกจาก PDF เอง โมเดลอ่านได้ทั้งตัวอักษร
+    และหน้าที่สแกนเป็นรูป
+    """
     settings = get_settings()
 
     if settings.ai_mock and not settings.gemini_api_key:
@@ -263,17 +288,36 @@ async def breakdown(title: str, context: str = "", count: int = 5) -> BreakdownR
             "and put it in .env (or set AI_MOCK=true to try the UI with sample data first)",
         )
 
+    attachment_note = ""
+    parts: list[dict] = []
+    if attachment is not None:
+        filename, content_type, data = attachment
+        if content_type not in READABLE_TYPES:
+            raise HTTPException(
+                415, "AI can read PDF, images and plain text — export Word/Excel files to PDF first"
+            )
+        attachment_note = (
+            f'The attached document "{filename}" IS the request. Read it fully and break down '
+            "the work it describes — scope of work, deliverables, acceptance conditions and "
+            "any schedule or milestones in it. The request title above is only the name of "
+            "the matter; do not invent work that the document does not ask for.\n"
+        )
+        parts.append({"inline_data": {"mime_type": content_type, "data": base64.b64encode(data).decode()}})
+
     prompt = PROMPT.format(
         title=title,
+        today=datetime.now(LOCAL_TZ).date().isoformat(),
+        attachment_note=attachment_note,
         context=f"Extra context from the user: {context}" if context.strip() else "",
         categories=", ".join(CATEGORIES),
         count=count,
         slice_rule=SLICE_RULE,
         depends_rule=DEPENDS_RULE,
     )
+    parts.append({"text": prompt})
 
     payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
+        "contents": [{"parts": parts}],
         "generationConfig": {
             "responseMimeType": "application/json",
             "responseSchema": RESPONSE_SCHEMA,
@@ -305,6 +349,83 @@ async def breakdown(title: str, context: str = "", count: int = 5) -> BreakdownR
         raise HTTPException(502, f"Could not read the Gemini response: {exc}") from exc
 
     return BreakdownResult.model_validate({**data, "mock": False})
+
+
+# ---------- อ่าน metadata ของเอกสารตอนอัปโหลด ----------
+
+METADATA_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "title": {"type": "string"},
+        "docNumber": {"type": "string"},
+        "agency": {"type": "string"},
+        "deadline": {"type": "string"},
+        "category": {"type": "string", "enum": ["tor", "contract", "amendment", "minutes", "acceptance", "other"]},
+        "summary": {"type": "string"},
+    },
+    "required": ["title", "docNumber", "agency", "deadline", "category", "summary"],
+}
+
+METADATA_PROMPT = """Read the attached document and fill in these fields. Answer in the document's own
+language (Thai document, Thai answer) except category which is a fixed English value.
+Today is {today}.
+
+- title: a short name for this matter, the way a clerk would label the folder — the subject
+  line ("เรื่อง") if the document has one, otherwise a 5-10 word summary of what it is about
+- docNumber: the official reference number (เลขที่หนังสือ / เลขที่สัญญา / Ref. No.), exactly
+  as printed. Empty string if there is none
+- agency: the organisation that issued or sent the document. Empty string if unclear
+- deadline: the single most important delivery or response date as YYYY-MM-DD — final
+  delivery for a TOR or contract, reply-by date for a letter. Turn "within 30 days" into a
+  date counted from today. Empty string if the document gives no date; never invent one
+- category: tor (terms of reference / scope of work), contract (สัญญา), amendment (a revision
+  of an earlier document), minutes (meeting minutes / รายงานการประชุม), acceptance (inspection
+  or acceptance report / ใบตรวจรับ), other
+- summary: 1-2 sentences on what the document asks for or records"""
+
+
+async def extract_metadata(filename: str, content_type: str, data: bytes) -> FileMetadata:
+    """ให้ AI อ่านเอกสารแล้วเสนอชื่อเรื่อง เลขที่ หน่วยงาน กำหนดส่ง หมวด — ไว้เติมฟอร์ม
+
+    ใช้ 1 คำขอต่อไฟล์ เป็น opt-in จากปุ่มบนฟอร์ม ไม่ยิงอัตโนมัติทุกครั้งที่อัปโหลด
+    เพราะกินโควตาและเนื้อหาออกไปนอกระบบ
+    """
+    settings = get_settings()
+    if not settings.gemini_api_key:
+        raise HTTPException(503, "GEMINI_API_KEY is not set")
+    if content_type not in READABLE_TYPES:
+        raise HTTPException(415, "AI can read PDF, images and plain text — export Word/Excel files to PDF first")
+
+    payload = {
+        "contents": [{"parts": [
+            {"inline_data": {"mime_type": content_type, "data": base64.b64encode(data).decode()}},
+            {"text": METADATA_PROMPT.format(today=datetime.now(LOCAL_TZ).date().isoformat())},
+        ]}],
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "responseSchema": METADATA_SCHEMA,
+            "temperature": 0.2,
+        },
+    }
+    try:
+        async with httpx.AsyncClient(timeout=120) as client:
+            res = await client.post(
+                ENDPOINT.format(model=settings.gemini_model),
+                json=payload,
+                headers={"x-goog-api-key": settings.gemini_api_key},
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, f"Could not reach Gemini ({type(exc).__name__}): {exc}") from exc
+
+    if res.status_code != 200:
+        log.warning("Gemini ตอบ %s (metadata %s): %s", res.status_code, filename, res.text[:200])
+        raise HTTPException(502, _explain(res.status_code, res.text))
+
+    try:
+        text = res.json()["candidates"][0]["content"]["parts"][0]["text"]
+        return FileMetadata.model_validate(json.loads(text))
+    except (KeyError, IndexError, ValueError) as exc:
+        raise HTTPException(502, f"Could not read the Gemini response: {exc}") from exc
 
 
 # ---------- จับคู่ commit กับการ์ด ----------
