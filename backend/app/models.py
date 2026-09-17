@@ -288,32 +288,21 @@ class TaskComment(Base):
 
 
 class Case(Base):
-    """เรื่อง 1 เรื่องในหน้า Documents — แฟ้มที่รวมเอกสารของงานเดียวกัน
+    """Document 1 อัน = ที่เก็บเอกสารกลางของทีม/หน่วยงาน — เอกสารทุกเรื่องส่งเข้าที่นี่
 
-    สร้างอัตโนมัติตอนอัปโหลดไฟล์แรก แล้วค่อยเติมไฟล์ที่เกี่ยวข้อง (ฉบับแก้ไข สัญญา
-    รายงานประชุม) เข้ามาทีหลัง ผูกกับโปรเจคได้ 1 ต่อ 1 เพื่อให้ AI แตกงานลงบอร์ดนั้น
+    สร้างครั้งเดียวด้วยชื่อ (เช่น "เอกสารเข้า ฝ่ายไอที") มีสมาชิกเป็นเจ้าหน้าที่ที่เห็นร่วมกัน
+    ตัว Document ไม่มีเรื่อง/สถานะของตัวเอง — ข้อมูลพวกนั้นอยู่ที่เอกสารแต่ละใบ (CaseFile)
+    เพราะใบหนึ่งเป็น TOR ผูกโปรเจค A อีกใบเป็นหนังสือเชิญประชุมที่ไม่เกี่ยวโปรเจคเลย
     """
 
     __tablename__ = "cases"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    #: ชื่อเรื่อง — ตั้งต้นจากชื่อไฟล์แรก เจ้าของแก้ได้
+    #: ชื่อที่เก็บ — เจ้าของ/admin แก้ได้
     title: Mapped[str] = mapped_column(Text)
-    #: received / in_progress / delivered / closed — วงจรของเรื่อง ไม่ใช่ของงาน
-    status: Mapped[str] = mapped_column(String(20), default="received")
-    #: เลขที่หนังสือหลักของเรื่อง เช่น "สธ 0201/1234"
-    doc_number: Mapped[str | None] = mapped_column(String(60), nullable=True)
-    #: หน่วยงานต้นเรื่อง
-    agency: Mapped[str | None] = mapped_column(String(160), nullable=True)
-    #: กำหนดส่งมอบตามเอกสาร — ใช้ป้าย Overdue เดียวกับงาน
-    deadline: Mapped[date | None] = mapped_column(Date, nullable=True)
-    #: SET NULL ทั้งคู่ — คนถูกลบหรือโปรเจคถูกลบ เรื่องกับเอกสารต้องยังอยู่
+    #: SET NULL — คนถูกลบ เอกสารของทีมต้องยังอยู่
     owner_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("members.id", ondelete="SET NULL"), nullable=True
-    )
-    #: โปรเจคที่ผูกไว้ — unique เพราะกติกาคือ 1 เรื่องต่อ 1 โปรเจค
-    project_id: Mapped[str | None] = mapped_column(
-        String(36), ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, unique=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(
@@ -328,14 +317,27 @@ class Case(Base):
         order_by="CaseFile.uploaded_at",
         lazy="selectin",
     )
-    project: Mapped[Project | None] = relationship(lazy="selectin")
+    #: คำขอเอกสารที่ที่เก็บนี้ส่งออก / ได้รับ — ไม่ผูก relationship กลับไป Case อีกฝั่ง
+    #: (selectin สองทางจะวนโหลดไม่รู้จบ) หน้าเว็บเอาชื่ออีกฝั่งจาก /directory แทน
+    requests_out: Mapped[list[DocumentRequest]] = relationship(
+        foreign_keys="DocumentRequest.from_case_id",
+        cascade="all, delete-orphan",
+        order_by="DocumentRequest.created_at.desc()",
+        lazy="selectin",
+    )
+    requests_in: Mapped[list[DocumentRequest]] = relationship(
+        foreign_keys="DocumentRequest.to_case_id",
+        cascade="all, delete-orphan",
+        order_by="DocumentRequest.created_at.desc()",
+        lazy="selectin",
+    )
 
     @property
     def admin_ids(self) -> set[str]:
         return {cm.member_id for cm in self.memberships if cm.role == "admin"}
 
     def can_manage(self, member_id: str | None) -> bool:
-        """เจ้าของหรือ admin ของเรื่อง — แก้ข้อมูล เพิ่มคน ผูกโปรเจค"""
+        """เจ้าของหรือ admin ของที่เก็บ — เปลี่ยนชื่อ เพิ่มคน แก้ข้อมูลเอกสาร ผูกโปรเจค"""
         return member_id is not None and (member_id == self.owner_id or member_id in self.admin_ids)
 
 
@@ -348,7 +350,7 @@ class CaseMember(Base):
 
 
 class CaseFile(Base):
-    """เอกสาร 1 ฉบับในเรื่อง — ตัวไฟล์เก็บใน Postgres ตรง ๆ
+    """เอกสาร 1 ใบในที่เก็บ — มีเรื่อง/เลขที่/กำหนดส่ง/สถานะ/โปรเจคของตัวเอง ตัวไฟล์เก็บใน Postgres ตรง ๆ
 
     เก็บเป็น bytea แทนดิสก์เพราะ Render (free) ไม่มีดิสก์ถาวร ไฟล์จะหายทุกครั้งที่ deploy
     จำกัดขนาดต่อไฟล์ไว้ที่ router — เอกสารราชการเป็น PDF ไม่กี่ร้อย KB อยู่แล้ว
@@ -358,6 +360,21 @@ class CaseFile(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     case_id: Mapped[str] = mapped_column(ForeignKey("cases.id", ondelete="CASCADE"))
+    #: เรื่อง — ตั้งต้นจากชื่อไฟล์ตัดนามสกุล แก้ได้ทีหลัง ("Fill details" ให้ AI อ่านมาเติมก็ได้)
+    title: Mapped[str] = mapped_column(Text, default="")
+    #: received / in_progress / delivered / closed — วงจรของเอกสารใบนี้
+    status: Mapped[str] = mapped_column(String(20), default="received")
+    #: เลขที่หนังสือ เช่น "สธ 0201/1234"
+    doc_number: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    #: หน่วยงานต้นเรื่อง
+    agency: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    #: กำหนดส่งมอบตามเอกสาร — ใช้ป้าย Overdue เดียวกับงาน
+    deadline: Mapped[date | None] = mapped_column(Date, nullable=True)
+    #: โปรเจคที่เอกสารใบนี้เกี่ยว — ไม่ unique เพราะ TOR กับสัญญาชี้โปรเจคเดียวกันได้
+    #: SET NULL โปรเจคถูกลบ เอกสารยังอยู่แค่หลุดจากบอร์ด
+    project_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("projects.id", ondelete="SET NULL"), nullable=True
+    )
     filename: Mapped[str] = mapped_column(Text)
     content_type: Mapped[str] = mapped_column(String(120))
     size: Mapped[int] = mapped_column(Integer)
@@ -376,6 +393,45 @@ class CaseFile(Base):
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     case: Mapped[Case] = relationship(back_populates="files")
+    project: Mapped[Project | None] = relationship(lazy="selectin")
+
+
+class DocumentRequest(Base):
+    """คำขอเอกสารข้ามที่เก็บ — ทีม A (from) ขอเอกสารจากทีม B (to)
+
+    ผู้ดูแลของ B เลือกไฟล์ในที่เก็บตัวเองส่งให้ ระบบคัดลอกเป็นแถวใหม่ใน A (file_id ชี้สำเนานั้น)
+    คัดลอกแทนการอ้างถึงเพราะสิทธิ์ยึดจากสมาชิกของที่เก็บ — ถ้าอ้างถึง ไฟล์ของ B จะโผล่ให้คนของ A
+    เห็นผ่านช่องทางพิเศษ และถ้า B ลบทีหลัง A จะเสียเอกสารที่เคยได้รับไปแล้ว
+    """
+
+    __tablename__ = "document_requests"
+    __table_args__ = (
+        Index("ix_document_requests_to", "to_case_id", "status"),
+        Index("ix_document_requests_from", "from_case_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    from_case_id: Mapped[str] = mapped_column(String(36), ForeignKey("cases.id", ondelete="CASCADE"))
+    to_case_id: Mapped[str] = mapped_column(String(36), ForeignKey("cases.id", ondelete="CASCADE"))
+    requested_by: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("members.id", ondelete="SET NULL"), nullable=True
+    )
+    #: เอกสารที่ขอ เช่น "สัญญาจ้างระบบจองห้อง ฉบับลงนาม"
+    title: Mapped[str] = mapped_column(Text)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: pending / fulfilled / declined
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    #: สำเนาที่ถูกส่งเข้าที่เก็บผู้ขอ — SET NULL ถ้าผู้ขอลบสำเนาทีหลัง คำขอยังนับว่าเคยได้รับ
+    file_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("case_files.id", ondelete="SET NULL"), nullable=True
+    )
+    #: ข้อความตอบกลับตอนปฏิเสธ
+    reply: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resolved_by: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("members.id", ondelete="SET NULL"), nullable=True
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
 class WebhookEvent(Base):

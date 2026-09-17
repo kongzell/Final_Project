@@ -1,14 +1,17 @@
-import { useRef, useState } from "react"
-import type { CasePatch } from "../api"
+import { useMemo, useRef, useState } from "react"
+import type { CaseFilePatch, CasePatch, NewCaseFile, NewDocumentRequest } from "../api"
 import { caseFileUrl } from "../api"
-import type { Case, CaseFile, CaseStatus, FileCategory, Member, Project } from "../types"
+import type {
+  Case, CaseDirectoryEntry, CaseFile, CaseStatus, DocumentRequest, FileCategory, Member, Project,
+} from "../types"
 import { CASE_STATUSES, currentFiles, FILE_CATEGORIES, formatBytes, todayIso } from "../types"
 import { ACCEPT, MAX_BYTES } from "./AddDocumentModal"
 import { Avatar } from "./Avatar"
+import { DocumentFileModal } from "./DocumentFileModal"
 import {
-  IconCheck, IconDownload, IconFile, IconFolder, IconLink, IconPlus, IconSparkle, IconTrash,
+  IconDownload, IconFile, IconFolder, IconLink, IconPlus, IconSparkle, IconTrash,
 } from "./Icons"
-import { Menu, MenuItem, MenuLabel } from "./Menu"
+import { RequestDocumentModal } from "./RequestDocumentModal"
 import "./Documents.css"
 
 const fmtDate = (iso: string) =>
@@ -20,9 +23,11 @@ const fmtDate = (iso: string) =>
 
 const categoryLabel = (id: FileCategory) => FILE_CATEGORIES.find((c) => c.id === id)?.label ?? id
 
-/** เลยกำหนดส่งแล้วแต่ยังไม่ปิด — กติกาเดียวกับงาน */
-const isLate = (c: Case) =>
-  c.deadline !== null && c.status !== "closed" && c.status !== "delivered" && c.deadline < todayIso()
+/** ยังไม่จบ — received / in_progress */
+const isOpen = (f: CaseFile) => f.status === "received" || f.status === "in_progress"
+
+/** เลยกำหนดส่งแล้วแต่ยังไม่จบ — กติกาเดียวกับงาน */
+const isLate = (f: CaseFile) => f.deadline !== null && isOpen(f) && f.deadline < todayIso()
 
 /** AI อ่านได้เฉพาะ PDF/รูป/ข้อความ — Word/Excel ต้องแปลงก่อน */
 const aiReadable = (f: Pick<CaseFile, "contentType">) =>
@@ -31,18 +36,28 @@ const aiReadable = (f: Pick<CaseFile, "contentType">) =>
 export type DocumentActions = {
   onUpdate: (id: string, patch: CasePatch) => Promise<void>
   onDelete: (id: string) => Promise<void>
-  onAddFile: (id: string, file: File, category: FileCategory, replacesId?: string) => Promise<void>
+  onAddFile: (id: string, input: NewCaseFile) => Promise<void>
+  onUpdateFile: (id: string, fileId: string, patch: CaseFilePatch) => Promise<void>
   onDeleteFile: (id: string, fileId: string) => Promise<void>
   onManageMembers: (id: string) => void
   onBreakdown: (c: Case, file: CaseFile) => void
-  /** ให้ AI อ่านไฟล์แล้วเติมเลขที่/หน่วยงาน/กำหนดส่งที่ยังว่างในแผงขวา — คืนข้อความบอกว่าเติมอะไร */
+  /** ให้ AI อ่านไฟล์แล้วเติมเรื่อง/เลขที่/หน่วยงาน/กำหนดส่งที่ยังว่างของใบนั้น — คืนข้อความบอกว่าเติมอะไร */
   onExtract: (c: Case, file: CaseFile) => Promise<string>
+  /** ขอเอกสารข้ามที่เก็บ */
+  onRequest: (id: string, input: NewDocumentRequest) => Promise<void>
+  onFulfill: (id: string, requestId: string, fileId: string) => Promise<void>
+  /** อัปโหลดไฟล์ใหม่เข้าที่เก็บแล้วส่งตอบคำขอทันที — ใช้เมื่อเอกสารที่ถูกขอยังไม่อยู่ในระบบ */
+  onFulfillUpload: (id: string, requestId: string, input: NewCaseFile) => Promise<void>
+  onDecline: (id: string, requestId: string, reply: string) => Promise<void>
+  onCancelRequest: (id: string, requestId: string) => Promise<void>
 }
 
-// ---------- หน้า Documents: รายการ workspace หรือ workspace ที่เปิดอยู่ ----------
+// ---------- หน้า Documents: รายการที่เก็บ หรือที่เก็บที่เปิดอยู่ ----------
 
 type ViewProps = DocumentActions & {
   cases: Case[]
+  /** ที่เก็บทุกอันในระบบ — ปลายทางของคำขอ และแปลง id → ชื่อ */
+  directory: CaseDirectoryEntry[]
   projects: Project[]
   members: Member[]
   currentMemberId: string | null
@@ -53,17 +68,16 @@ type ViewProps = DocumentActions & {
 }
 
 export function DocumentsView(props: ViewProps) {
-  const { cases, projects, members, selected, onSelect, onNew } = props
-  const projectOf = (c: Case) => projects.find((p) => p.id === c.projectId) ?? null
+  const { cases, members, selected, onSelect, onNew } = props
 
-  if (selected) return <Workspace key={selected.id} {...props} c={selected} project={projectOf(selected)} />
+  if (selected) return <Workspace key={selected.id} {...props} c={selected} />
 
   return (
     <div className="docs">
       <div className="docs-head">
         <div>
           <h2 className="docs-title"><IconFolder size={18} /> Documents</h2>
-          <p className="docs-sub">One workspace per matter — keep its TOR, contract, minutes and revisions together</p>
+          <p className="docs-sub">A shared inbox for your team — every incoming document goes here, whatever it is about</p>
         </div>
         <button type="button" className="btn btn-primary" onClick={onNew}>
           <IconPlus size={14} /> New document
@@ -73,8 +87,8 @@ export function DocumentsView(props: ViewProps) {
       {cases.length === 0 ? (
         <div className="docs-empty">
           <IconFolder size={36} />
-          <h3>No documents yet</h3>
-          <p>Create a document workspace, then add its files. Link it to a project when you want AI to turn a TOR into task cards.</p>
+          <h3>No document space yet</h3>
+          <p>Create one for your team or department, add the people who handle paperwork, then send every TOR, letter or contract into it. Link a file to a project when you want AI to turn it into task cards.</p>
           <button type="button" className="btn btn-primary" onClick={onNew}>
             <IconPlus size={14} /> New document
           </button>
@@ -82,7 +96,7 @@ export function DocumentsView(props: ViewProps) {
       ) : (
         <div className="docs-grid">
           {cases.map((c) => (
-            <CaseCard key={c.id} c={c} project={projectOf(c)} members={members} onOpen={() => onSelect(c.id)} />
+            <CaseCard key={c.id} c={c} members={members} onOpen={() => onSelect(c.id)} />
           ))}
         </div>
       )}
@@ -90,87 +104,64 @@ export function DocumentsView(props: ViewProps) {
   )
 }
 
-// ---------- การ์ด workspace (หน้ารวม) ----------
+// ---------- การ์ดที่เก็บ (หน้ารวม) ----------
 
-function CaseCard({
-  c, project, members, onOpen,
-}: { c: Case; project: Project | null; members: Member[]; onOpen: () => void }) {
-  const status = CASE_STATUSES.find((s) => s.id === c.status)
+function CaseCard({ c, members, onOpen }: { c: Case; members: Member[]; onOpen: () => void }) {
   const people = members.filter((m) => c.memberIds.includes(m.id))
-  const done = project ? project.tasks.filter((t) => t.parentId === null && t.status === "complete").length : 0
-  const total = project ? project.tasks.filter((t) => t.parentId === null).length : 0
-  const late = isLate(c)
-  const fileCount = currentFiles(c).length
+  const files = currentFiles(c)
+  const open = files.filter(isOpen).length
+  const late = files.filter(isLate).length
 
   return (
-    <button type="button" className={"case-card" + (late ? " is-late" : "")} onClick={onOpen}>
+    <button type="button" className={"case-card" + (late > 0 ? " is-late" : "")} onClick={onOpen}>
       <div className="case-top">
         <IconFolder size={18} className="case-glyph" />
-        <span className="case-status" style={{ color: status?.color }}>
-          <span className="dot" style={{ background: status?.color }} />
-          {status?.label}
-        </span>
+        {late > 0 && <span className="case-late-tag">{late} overdue</span>}
       </div>
       <h3 className="case-title">{c.title}</h3>
-      {(c.docNumber || c.agency) && (
-        <p className="case-meta">
-          {c.docNumber && <span>{c.docNumber}</span>}
-          {c.docNumber && c.agency && <span className="case-dot">·</span>}
-          {c.agency && <span>{c.agency}</span>}
-        </p>
-      )}
       <div className="case-row">
-        <span className="case-files"><IconFile size={13} /><span>{fileCount} file{fileCount === 1 ? "" : "s"}</span></span>
-        {c.deadline && (
-          <span className={"case-deadline" + (late ? " is-late" : "")}>{late ? "Overdue · " : "Due "}{fmtDate(c.deadline)}</span>
-        )}
+        <span className="case-files"><IconFile size={13} /><span>{files.length} document{files.length === 1 ? "" : "s"}</span></span>
+        {open > 0 && <span className="case-open">{open} open</span>}
         <span className="case-people">
           {people.slice(0, 3).map((m) => <Avatar key={m.id} member={m} size={20} />)}
           {people.length > 3 && <span className="case-more">+{people.length - 3}</span>}
         </span>
       </div>
-      <div className="case-foot">
-        {project ? (
-          <>
-            <span className="case-link"><IconLink size={12} /> {project.name}</span>
-            {total > 0 ? (
-              <span className="case-progress">
-                <span className="case-bar"><span style={{ width: `${(done / total) * 100}%` }} /></span>
-                {done}/{total} done
-              </span>
-            ) : <span className="case-progress is-dim">no tasks yet</span>}
-          </>
-        ) : <span className="case-link is-dim">No project linked</span>}
-      </div>
     </button>
   )
 }
 
-// ---------- workspace ที่เปิดอยู่: หัว + การ์ดไฟล์ ----------
+// ---------- ที่เก็บที่เปิดอยู่: หัว + ตัวกรอง + การ์ดเอกสาร ----------
 
-type WorkspaceProps = ViewProps & { c: Case; project: Project | null }
+type WorkspaceProps = ViewProps & { c: Case }
+type StatusFilter = CaseStatus | "all" | "open"
 
 function Workspace({
-  c, project, members, currentMemberId, onUpdate, onAddFile, onDeleteFile, onBreakdown, onExtract,
+  c, projects, members, directory, currentMemberId,
+  onUpdate, onAddFile, onUpdateFile, onDeleteFile, onBreakdown, onExtract, onRequest,
 }: WorkspaceProps) {
   const isOwner = currentMemberId !== null && c.ownerId === currentMemberId
   const canManage = isOwner || (currentMemberId !== null && c.adminIds.includes(currentMemberId))
-  const canBreakdown =
-    project !== null && currentMemberId !== null &&
-    (project.ownerId === currentMemberId || project.adminIds.includes(currentMemberId))
-  const breakdownHint = project === null
-    ? "Link a project in the panel on the right first"
-    : !canBreakdown ? "Only the owner or an admin of the linked project can create tasks"
-    : "Let AI read this file and propose task cards"
+  /** แก้ข้อมูลใบนี้ได้ — คนส่งเอง หรือเจ้าของ/admin ของที่เก็บ (กติกาเดียวกับ API) */
+  const canEdit = (f: CaseFile) => canManage || (currentMemberId !== null && f.uploadedBy === currentMemberId)
+  const linkable = projects.filter(
+    (p) => currentMemberId !== null && (p.ownerId === currentMemberId || p.adminIds.includes(currentMemberId)),
+  )
+  const canBreakdownIn = (p: Project | null) =>
+    p !== null && currentMemberId !== null && (p.ownerId === currentMemberId || p.adminIds.includes(currentMemberId))
 
   const [error, setError] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
   const [extracting, setExtracting] = useState<string | null>(null)
   const [renaming, setRenaming] = useState(false)
-  // ชื่อในช่องแก้ — คัดลอกจากของจริงตอนเริ่มแก้ทีเดียว (key ของ Workspace รีเซ็ต state ตอนสลับเรื่องอยู่แล้ว)
+  // ชื่อในช่องแก้ — คัดลอกจากของจริงตอนเริ่มแก้ทีเดียว (key ของ Workspace รีเซ็ต state ตอนสลับที่เก็บอยู่แล้ว)
   const [title, setTitle] = useState("")
-  const [addCat, setAddCat] = useState<FileCategory>("tor")
+  const [adding, setAdding] = useState(false)
+  const [requesting, setRequesting] = useState(false)
+  const [editing, setEditing] = useState<CaseFile | null>(null)
   const [replacing, setReplacing] = useState<CaseFile | null>(null)
+  const [query, setQuery] = useState("")
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all")
   const fileInput = useRef<HTMLInputElement>(null)
   const startRename = () => { setTitle(c.title); setRenaming(true) }
 
@@ -180,7 +171,7 @@ function Workspace({
   }
 
   const uploader = (id: string | null) => members.find((m) => m.id === id)?.name ?? "—"
-  const files = currentFiles(c)
+  const files = useMemo(() => currentFiles(c), [c])
   const history = (f: CaseFile): CaseFile[] => {
     const out: CaseFile[] = []
     let cur: CaseFile | undefined = f
@@ -191,12 +182,31 @@ function Workspace({
     return out
   }
 
-  const pickFile = (f: File | null) => {
-    if (!f) return
-    if (f.size > MAX_BYTES) { setError(`${f.name} is ${formatBytes(f.size)} — the limit is 5 MB`); return }
+  // ที่เก็บของทีมมีเอกสารหลายเรื่องปนกัน — กรองตามสถานะและค้นจากเรื่อง/เลขที่/หน่วยงาน/ชื่อไฟล์
+  // ใบที่เลยกำหนดขึ้นก่อน ที่เหลือใหม่สุดก่อน
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    const projectName = (f: CaseFile) => projects.find((p) => p.id === f.projectId)?.name
+    return files
+      .filter((f) => statusFilter === "all" ? true : statusFilter === "open" ? isOpen(f) : f.status === statusFilter)
+      .filter((f) => !q || [f.title, f.docNumber, f.agency, f.filename, projectName(f)]
+        .some((s) => s?.toLowerCase().includes(q)))
+      .sort((a, b) => Number(isLate(b)) - Number(isLate(a)) || b.uploadedAt.localeCompare(a.uploadedAt))
+  }, [files, query, statusFilter, projects])
+
+  const counts = {
+    all: files.length,
+    open: files.filter(isOpen).length,
+    late: files.filter(isLate).length,
+  }
+
+  /** ฉบับใหม่ของใบเดิม — ไม่ต้องกรอกอะไร API สืบทอดเรื่อง/โปรเจคให้ */
+  const pickVersion = (f: File | null) => {
     const target = replacing
     setReplacing(null)
-    void run(() => onAddFile(c.id, f, target ? target.category : addCat, target?.id))
+    if (!f || !target) return
+    if (f.size > MAX_BYTES) { setError(`${f.name} is ${formatBytes(f.size)} — the limit is 5 MB`); return }
+    void run(() => onAddFile(c.id, { file: f, category: target.category, replacesId: target.id }))
   }
 
   return (
@@ -225,19 +235,16 @@ function Workspace({
             </h2>
           )}
           <p className="docs-sub">
-            {files.length} file{files.length === 1 ? "" : "s"}
-            {c.docNumber && <> · {c.docNumber}</>}
-            {c.agency && <> · {c.agency}</>}
-            {c.deadline && <> · Due {fmtDate(c.deadline)}</>}
-            {isLate(c) && <span className="case-late-tag">Overdue</span>}
+            {counts.all} document{counts.all === 1 ? "" : "s"} · {counts.open} open
+            {counts.late > 0 && <span className="case-late-tag">{counts.late} overdue</span>}
           </p>
         </div>
 
         <div className="ws-add">
-          <select value={addCat} onChange={(e) => setAddCat(e.target.value as FileCategory)} title="Category of the file you are about to add">
-            {FILE_CATEGORIES.map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}
-          </select>
-          <button type="button" className="btn btn-primary" onClick={() => { setReplacing(null); fileInput.current?.click() }}>
+          <button type="button" className="btn" onClick={() => setRequesting(true)} title="Ask another team for a document">
+            Request document
+          </button>
+          <button type="button" className="btn btn-primary" onClick={() => setAdding(true)}>
             <IconPlus size={14} /> Add document
           </button>
         </div>
@@ -246,9 +253,32 @@ function Workspace({
           type="file"
           accept={ACCEPT}
           hidden
-          onChange={(e) => { pickFile(e.target.files?.[0] ?? null); e.target.value = "" }}
+          onChange={(e) => { pickVersion(e.target.files?.[0] ?? null); e.target.value = "" }}
         />
       </div>
+
+      {files.length > 0 && (
+        <div className="ws-filters">
+          <div className="ws-chips">
+            {([["all", "All"], ["open", "Open"], ...CASE_STATUSES.map((s) => [s.id, s.label])] as [StatusFilter, string][]).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                className={"ws-chip" + (statusFilter === id ? " is-on" : "")}
+                onClick={() => setStatusFilter(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <input
+            className="field-input ws-search"
+            placeholder="Search subject, number, agency…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+      )}
 
       {error && <p className="modal-error">{error}</p>}
       {note && <p className="ws-note">{note}</p>}
@@ -256,192 +286,278 @@ function Workspace({
       {files.length === 0 ? (
         <div className="docs-empty">
           <IconFile size={36} />
-          <h3>No files in this document yet</h3>
-          <p>Add the TOR, contract, minutes or any file that belongs to this matter — related to a project or not.</p>
+          <h3>Nothing here yet</h3>
+          <p>Send the first document in — a TOR, a letter, a contract, minutes. Each one keeps its own subject, number, deadline and status.</p>
+          <button type="button" className="btn btn-primary" onClick={() => setAdding(true)}>
+            <IconPlus size={14} /> Add document
+          </button>
         </div>
+      ) : shown.length === 0 ? (
+        <p className="ws-nomatch">No documents match this filter.</p>
       ) : (
         <div className="docs-grid">
-          {files.map((f) => {
-            const older = history(f)
-            const readable = aiReadable(f)
-            return (
-              <article key={f.id} className="file-card">
-                <div className="file-card-top">
-                  <span className="case-file-cat">{categoryLabel(f.category)}</span>
-                  {f.version > 1 && <span className="file-ver">v{f.version}</span>}
-                </div>
-                <a className="file-card-name" href={caseFileUrl(c.id, f.id)} target="_blank" rel="noreferrer" title="Open">
-                  <IconFile size={15} /> {f.filename}
-                </a>
-                <p className="file-card-meta">
-                  {formatBytes(f.size)} · {uploader(f.uploadedBy)} · {fmtDate(f.uploadedAt)}
-                </p>
-                {older.length > 0 && (
-                  <p className="file-card-history">replaces {older.map((h) => `${h.filename} (v${h.version})`).join(" ← ")}</p>
-                )}
-                <div className="file-card-actions">
-                  <button
-                    type="button"
-                    className="member-action is-ai"
-                    title={readable ? breakdownHint : "AI can read PDF, images and text — export this to PDF first"}
-                    disabled={!canBreakdown || !readable}
-                    onClick={() => onBreakdown(c, f)}
-                  >
-                    <IconSparkle size={13} /> Create task cards
-                  </button>
-                  {canManage && (
-                    <button
-                      type="button"
-                      className="member-action"
-                      title={readable ? "AI reads doc number, agency and deadline from this file into the panel (fills only empty fields · 1 Gemini request)" : "AI can read PDF, images and text only"}
-                      disabled={!readable || extracting === f.id}
-                      onClick={() => {
-                        setExtracting(f.id)
-                        setNote(null)
-                        void run(async () => setNote(await onExtract(c, f))).finally(() => setExtracting(null))
-                      }}
-                    >
-                      {extracting === f.id ? "Reading..." : "Fill details"}
-                    </button>
-                  )}
-                  <a className="member-action" href={caseFileUrl(c.id, f.id)} download={f.filename} title="Download">
-                    <IconDownload size={14} />
-                  </a>
-                  <button type="button" className="member-action" title="Upload a new version of this file" onClick={() => { setReplacing(f); fileInput.current?.click() }}>
-                    New version
-                  </button>
-                  {isOwner && (
-                    <button
-                      type="button"
-                      className="member-action is-danger"
-                      title="Delete file"
-                      onClick={() => { if (window.confirm(`Delete ${f.filename}?`)) void run(() => onDeleteFile(c.id, f.id)) }}
-                    >
-                      <IconTrash size={14} />
-                    </button>
-                  )}
-                </div>
-              </article>
-            )
-          })}
+          {shown.map((f) => (
+            <DocCard
+              key={f.id}
+              f={f}
+              project={projects.find((p) => p.id === f.projectId) ?? null}
+              older={history(f)}
+              uploader={uploader(f.uploadedBy)}
+              caseId={c.id}
+              canEdit={canEdit(f)}
+              canDelete={isOwner}
+              canBreakdown={canBreakdownIn(projects.find((p) => p.id === f.projectId) ?? null)}
+              extracting={extracting === f.id}
+              onStatus={(s) => void run(() => onUpdateFile(c.id, f.id, { status: s }))}
+              onEdit={() => setEditing(f)}
+              onVersion={() => { setReplacing(f); fileInput.current?.click() }}
+              onDelete={() => { if (window.confirm(`Delete "${f.title}" (${f.filename})?`)) void run(() => onDeleteFile(c.id, f.id)) }}
+              onBreakdown={() => onBreakdown(c, f)}
+              onExtract={() => {
+                setExtracting(f.id)
+                setNote(null)
+                void run(async () => setNote(await onExtract(c, f))).finally(() => setExtracting(null))
+              }}
+            />
+          ))}
         </div>
+      )}
+
+      {adding && (
+        <DocumentFileModal
+          linkable={linkable}
+          onClose={() => setAdding(false)}
+          onSubmit={(input) => onAddFile(c.id, input)}
+          onSave={async () => {}}
+        />
+      )}
+      {requesting && (
+        <RequestDocumentModal
+          fromCaseId={c.id}
+          directory={directory}
+          onClose={() => setRequesting(false)}
+          onSubmit={(input) => onRequest(c.id, input)}
+        />
+      )}
+      {editing && (
+        <DocumentFileModal
+          editing={editing}
+          linkable={linkable}
+          onClose={() => setEditing(null)}
+          onSubmit={async () => {}}
+          onSave={(patch) => onUpdateFile(c.id, editing.id, patch)}
+        />
       )}
     </div>
   )
 }
 
-// ---------- แผงขวาของ workspace (เหมือน Project team) ----------
+// ---------- การ์ดเอกสาร 1 ใบ ----------
+
+type DocCardProps = {
+  f: CaseFile
+  project: Project | null
+  older: CaseFile[]
+  uploader: string
+  caseId: string
+  canEdit: boolean
+  canDelete: boolean
+  canBreakdown: boolean
+  extracting: boolean
+  onStatus: (s: CaseStatus) => void
+  onEdit: () => void
+  onVersion: () => void
+  onDelete: () => void
+  onBreakdown: () => void
+  onExtract: () => void
+}
+
+function DocCard({
+  f, project, older, uploader, caseId, canEdit, canDelete, canBreakdown, extracting,
+  onStatus, onEdit, onVersion, onDelete, onBreakdown, onExtract,
+}: DocCardProps) {
+  const status = CASE_STATUSES.find((s) => s.id === f.status)
+  const late = isLate(f)
+  const readable = aiReadable(f)
+  const done = project ? project.tasks.filter((t) => t.parentId === null && t.status === "complete").length : 0
+  const total = project ? project.tasks.filter((t) => t.parentId === null).length : 0
+  const breakdownHint = !readable
+    ? "AI can read PDF, images and text — export this to PDF first"
+    : project === null ? "Link this document to a project first (Edit)"
+    : !canBreakdown ? "Only the owner or an admin of the linked project can create tasks"
+    : "Let AI read this file and propose task cards"
+
+  return (
+    <article className={"file-card" + (late ? " is-late" : "")}>
+      <div className="file-card-top">
+        <span className="case-file-cat">{categoryLabel(f.category)}</span>
+        {f.version > 1 && <span className="file-ver">v{f.version}</span>}
+        {/* select ธรรมดาแทนเมนูป๊อปอัป — การ์ดแคบ เมนู 215px ล้น */}
+        {canEdit ? (
+          <label className="ws-status" style={{ color: status?.color }} title="Status of this document">
+            <span className="dot" style={{ background: status?.color }} />
+            <select value={f.status} onChange={(e) => onStatus(e.target.value as CaseStatus)}>
+              {CASE_STATUSES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+            </select>
+          </label>
+        ) : (
+          <span className="case-status" style={{ color: status?.color }}>
+            <span className="dot" style={{ background: status?.color }} />{status?.label}
+          </span>
+        )}
+      </div>
+
+      <h3 className="case-title">{f.title}</h3>
+      {(f.docNumber || f.agency) && (
+        <p className="case-meta">
+          {f.docNumber && <span>{f.docNumber}</span>}
+          {f.docNumber && f.agency && <span className="case-dot">·</span>}
+          {f.agency && <span>{f.agency}</span>}
+        </p>
+      )}
+
+      <a className="file-card-name" href={caseFileUrl(caseId, f.id)} target="_blank" rel="noreferrer" title="Open">
+        <IconFile size={14} /> {f.filename}
+      </a>
+      <p className="file-card-meta">
+        {formatBytes(f.size)} · {uploader} · {fmtDate(f.uploadedAt)}
+        {f.deadline && (
+          <span className={"case-deadline" + (late ? " is-late" : "")}> · {late ? "Overdue" : "Due"} {fmtDate(f.deadline)}</span>
+        )}
+      </p>
+      {older.length > 0 && (
+        <p className="file-card-history">replaces {older.map((h) => `${h.filename} (v${h.version})`).join(" ← ")}</p>
+      )}
+
+      <div className="case-foot">
+        {project ? (
+          <>
+            <span className="case-link"><IconLink size={12} /> {project.name}</span>
+            {total > 0 ? (
+              <span className="case-progress">
+                <span className="case-bar"><span style={{ width: `${(done / total) * 100}%` }} /></span>
+                {done}/{total} done
+              </span>
+            ) : <span className="case-progress is-dim">no tasks yet</span>}
+          </>
+        ) : <span className="case-link is-dim">Not related to a project</span>}
+      </div>
+
+      <div className="file-card-actions">
+        <button
+          type="button"
+          className="member-action is-ai"
+          title={breakdownHint}
+          disabled={!canBreakdown || !readable}
+          onClick={onBreakdown}
+        >
+          <IconSparkle size={13} /> Create task cards
+        </button>
+        {canEdit && (
+          <>
+            <button
+              type="button"
+              className="member-action"
+              title={readable ? "AI reads subject, doc number, agency and deadline from this file (fills only empty fields · 1 Gemini request)" : "AI can read PDF, images and text only"}
+              disabled={!readable || extracting}
+              onClick={onExtract}
+            >
+              {extracting ? "Reading..." : "Fill details"}
+            </button>
+            <button type="button" className="member-action" onClick={onEdit}>Edit</button>
+          </>
+        )}
+        <a className="member-action" href={caseFileUrl(caseId, f.id)} download={f.filename} title="Download">
+          <IconDownload size={14} />
+        </a>
+        <button type="button" className="member-action" title="Upload a new version of this file" onClick={onVersion}>
+          New version
+        </button>
+        {canDelete && (
+          <button type="button" className="member-action is-danger" title="Delete" onClick={onDelete}>
+            <IconTrash size={14} />
+          </button>
+        )}
+      </div>
+    </article>
+  )
+}
+
+// ---------- แผงขวาของที่เก็บ (เหมือน Project team) ----------
 
 type PanelProps = {
   c: Case
-  project: Project | null
-  projects: Project[]
   members: Member[]
+  directory: CaseDirectoryEntry[]
+  projects: Project[]
   currentMemberId: string | null
-  onUpdate: (id: string, patch: CasePatch) => Promise<void>
   onDelete: (id: string) => Promise<void>
   onManageMembers: (id: string) => void
-  onOpenProject: (projectId: string) => void
+  onFulfill: (id: string, requestId: string, fileId: string) => Promise<void>
+  onFulfillUpload: (id: string, requestId: string, input: NewCaseFile) => Promise<void>
+  onDecline: (id: string, requestId: string, reply: string) => Promise<void>
+  onCancelRequest: (id: string, requestId: string) => Promise<void>
   onClose: () => void
 }
 
 export function DocumentPanel({
-  c, project, projects, members, currentMemberId, onUpdate, onDelete, onManageMembers, onOpenProject, onClose,
+  c, members, directory, projects, currentMemberId,
+  onDelete, onManageMembers, onFulfill, onFulfillUpload, onDecline, onCancelRequest, onClose,
 }: PanelProps) {
   const isOwner = currentMemberId !== null && c.ownerId === currentMemberId
   const canManage = isOwner || (currentMemberId !== null && c.adminIds.includes(currentMemberId))
-  const status = CASE_STATUSES.find((s) => s.id === c.status)
   const people = members.filter((m) => c.memberIds.includes(m.id))
+  const files = currentFiles(c)
   const [error, setError] = useState<string | null>(null)
+  /** คำขอที่กำลังตอบด้วยการอัปโหลดไฟล์ใหม่ */
+  const [uploadFor, setUploadFor] = useState<DocumentRequest | null>(null)
+  const linkable = projects.filter(
+    (p) => currentMemberId !== null && (p.ownerId === currentMemberId || p.adminIds.includes(currentMemberId)),
+  )
+  const byStatus = CASE_STATUSES.map((s) => ({ ...s, n: files.filter((f) => f.status === s.id).length }))
   const run = async (fn: () => Promise<void>) => {
     setError(null)
     try { await fn() } catch (e) { setError(e instanceof Error ? e.message : "Something went wrong") }
   }
-  const linkable = projects.filter(
-    (p) => currentMemberId !== null && (p.ownerId === currentMemberId || p.adminIds.includes(currentMemberId)),
-  )
-
-  /** ช่องแก้ข้อความสั้น ๆ — บันทึกตอน blur/Enter เฉพาะเมื่อค่าเปลี่ยน */
-  const field = (label: string, value: string | null, key: "docNumber" | "agency" | "deadline", type = "text") => (
-    <label className="ws-field">
-      <span className="ws-field-label">{label}</span>
-      {canManage ? (
-        <input
-          className="field-input"
-          type={type}
-          defaultValue={value ?? ""}
-          key={`${c.id}-${key}-${value ?? ""}`}
-          onBlur={(e) => {
-            const v = e.target.value.trim() || null
-            if (v !== value) void run(() => onUpdate(c.id, { [key]: v }))
-          }}
-          onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur() }}
-        />
-      ) : (
-        <span className="ws-field-value">{value || "—"}</span>
-      )}
-    </label>
-  )
 
   return (
     <aside className="rs">
-      <section className="rs-panel">
-        <header className="rs-head">
-          <span className="rs-title">Details</span>
-          <Menu
-            align="right"
-            title="Status"
-            trigger={() => (
-              <span className="case-status is-btn" style={{ color: status?.color }}>
-                <span className="dot" style={{ background: status?.color }} />{status?.label}
-              </span>
-            )}
-          >
-            {(close) => (
-              <>
-                <MenuLabel>Status</MenuLabel>
-                {CASE_STATUSES.map((s) => (
-                  <MenuItem key={s.id} active={s.id === c.status} onClick={() => { if (canManage) void run(() => onUpdate(c.id, { status: s.id as CaseStatus })); close() }}>
-                    <span className="dot" style={{ background: s.color }} />
-                    <span className="menu-grow">{s.label}</span>
-                    {s.id === c.status && <IconCheck size={14} />}
-                  </MenuItem>
-                ))}
-              </>
-            )}
-          </Menu>
-        </header>
-        {field("Doc number", c.docNumber, "docNumber")}
-        {field("Agency", c.agency, "agency")}
-        {field("Deadline", c.deadline, "deadline", "date")}
-      </section>
+      <RequestsPanel
+        c={c}
+        files={files}
+        members={members}
+        directory={directory}
+        currentMemberId={currentMemberId}
+        canManage={canManage}
+        onFulfill={(rid, fid) => void run(() => onFulfill(c.id, rid, fid))}
+        onUpload={(r) => setUploadFor(r)}
+        onDecline={(rid, reply) => void run(() => onDecline(c.id, rid, reply))}
+        onCancel={(rid) => void run(() => onCancelRequest(c.id, rid))}
+      />
+      {uploadFor && (
+        <DocumentFileModal
+          linkable={linkable}
+          defaultTitle={uploadFor.title}
+          submitLabel="Upload & send"
+          onClose={() => setUploadFor(null)}
+          onSubmit={(input) => onFulfillUpload(c.id, uploadFor.id, input)}
+          onSave={async () => {}}
+        />
+      )}
 
       <section className="rs-panel">
-        <header className="rs-head"><span className="rs-title">Project</span></header>
-        {project ? (
-          <div className="ws-project">
-            <span className="case-project-name"><IconLink size={13} /> {project.name}</span>
-            {project.githubRepo && <span className="case-project-repo">{project.githubRepo}</span>}
-            <div className="ws-project-actions">
-              <button type="button" className="btn" onClick={() => onOpenProject(project.id)}>Open board</button>
-              {canManage && (
-                <button type="button" className="btn" onClick={() => void run(() => onUpdate(c.id, { projectId: null }))}>Unlink</button>
-              )}
-            </div>
-          </div>
-        ) : canManage ? (
-          <>
-            <select
-              className="case-project-pick"
-              defaultValue=""
-              onChange={(e) => { const id = e.target.value; if (id) void run(() => onUpdate(c.id, { projectId: id })) }}
-            >
-              <option value="">Link a project…</option>
-              {linkable.map((p) => <option key={p.id} value={p.id}>{p.name}{p.githubRepo ? ` · ${p.githubRepo}` : ""}</option>)}
-            </select>
-            <p className="rs-fair">Task cards created from these files land on that board. Nothing is created on GitHub.</p>
-          </>
-        ) : <p className="rs-empty">No project linked</p>}
+        <header className="rs-head">
+          <span className="rs-title">Overview</span>
+          <span className="rs-count">{files.length}</span>
+        </header>
+        <ul className="ws-overview">
+          {byStatus.map((s) => (
+            <li key={s.id}>
+              <span className="case-status" style={{ color: s.color }}><span className="dot" style={{ background: s.color }} />{s.label}</span>
+              <span className="ws-overview-n">{s.n}</span>
+            </li>
+          ))}
+        </ul>
       </section>
 
       <section className="rs-panel">
@@ -465,6 +581,7 @@ export function DocumentPanel({
             <IconPlus size={14} /> Add member
           </button>
         )}
+        <p className="rs-fair">Everyone here can send documents in and see all of them. Admins can edit any document.</p>
       </section>
 
       {error && <p className="modal-error">{error}</p>}
@@ -474,8 +591,9 @@ export function DocumentPanel({
           type="button"
           className="btn case-delete ws-delete"
           onClick={() => {
-            if (window.confirm(`Delete "${c.title}" and all ${c.files.length} file(s) including older versions? Tasks created from it are kept.`)) {
-              void run(async () => { await onDelete(c.id); onClose() })
+            if (window.confirm(`Delete "${c.title}" and all ${c.files.length} file(s) including older versions? Tasks created from them are kept.`)) {
+              setError(null)
+              onDelete(c.id).then(onClose).catch((e) => setError(e instanceof Error ? e.message : "Something went wrong"))
             }
           }}
         >
@@ -483,5 +601,126 @@ export function DocumentPanel({
         </button>
       )}
     </aside>
+  )
+}
+
+// ---------- คำขอเอกสารข้ามที่เก็บ (แผงขวา) ----------
+
+const fmtWhen = (iso: string) =>
+  new Date(iso).toLocaleDateString("th-TH", { day: "numeric", month: "short" })
+
+type RequestsPanelProps = {
+  c: Case
+  files: CaseFile[]
+  members: Member[]
+  directory: CaseDirectoryEntry[]
+  currentMemberId: string | null
+  canManage: boolean
+  onFulfill: (requestId: string, fileId: string) => void
+  onUpload: (r: DocumentRequest) => void
+  onDecline: (requestId: string, reply: string) => void
+  onCancel: (requestId: string) => void
+}
+
+/** คำขอเข้า (ทีมอื่นขอจากเรา — owner/admin เลือกไฟล์ส่ง) และคำขอออก (เราขอทีมอื่น — รอ/ได้แล้ว/ถูกปฏิเสธ)
+ *  ไม่โชว์เลยถ้าไม่มีคำขอสักรายการ จะได้ไม่รกแผงของทีมที่ไม่ได้ใช้ */
+function RequestsPanel({
+  c, files, members, directory, currentMemberId, canManage, onFulfill, onUpload, onDecline, onCancel,
+}: RequestsPanelProps) {
+  const [pick, setPick] = useState<Record<string, string>>({})
+  const spaceName = (id: string) => directory.find((d) => d.id === id)?.title ?? "another team"
+  const who = (id: string | null) => members.find((m) => m.id === id)?.name ?? "—"
+  const incoming = c.requestsIn.filter((r) => r.status === "pending")
+  const outgoing = c.requestsOut
+  if (incoming.length === 0 && outgoing.length === 0) return null
+
+  const statusChip = (r: DocumentRequest) => (
+    <span className={"req-status is-" + r.status}>
+      {r.status === "pending" ? "Waiting" : r.status === "fulfilled" ? "Received" : "Declined"}
+    </span>
+  )
+
+  return (
+    <section className="rs-panel">
+      <header className="rs-head">
+        <span className="rs-title">Requests</span>
+        {incoming.length > 0 && <span className="rs-badge">{incoming.length} to answer</span>}
+      </header>
+
+      {incoming.length > 0 && (
+        <ul className="req-list">
+          {incoming.map((r) => (
+            <li key={r.id} className="req-item is-in">
+              <div className="req-title">{r.title}</div>
+              <div className="req-meta">{spaceName(r.fromCaseId)} · {who(r.requestedBy)} · {fmtWhen(r.createdAt)}</div>
+              {r.note && <p className="req-note">{r.note}</p>}
+              {canManage ? (
+                <div className="req-answer">
+                  {/* ไม่มีไฟล์ในที่เก็บ = ไม่มีอะไรให้เลือก ชี้ไปอัปโหลดเลยแทนที่จะโชว์ dropdown ว่าง */}
+                  {files.length === 0 ? (
+                    <p className="rs-fair">Nothing in this space yet — upload the file and it goes straight to them.</p>
+                  ) : (
+                    <select
+                      className="case-project-pick"
+                      value={pick[r.id] ?? ""}
+                      onChange={(e) => setPick({ ...pick, [r.id]: e.target.value })}
+                    >
+                      <option value="">Pick a file to send…</option>
+                      {files.map((f) => <option key={f.id} value={f.id}>{f.title}{f.version > 1 ? ` (v${f.version})` : ""}</option>)}
+                    </select>
+                  )}
+                  <div className="req-btns">
+                    {files.length > 0 && (
+                      <button type="button" className="btn btn-primary" disabled={!pick[r.id]} onClick={() => onFulfill(r.id, pick[r.id])}>
+                        Send
+                      </button>
+                    )}
+                    <button type="button" className={"btn" + (files.length === 0 ? " btn-primary" : "")} onClick={() => onUpload(r)}>
+                      Upload & send
+                    </button>
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={() => {
+                        const reply = window.prompt(`Decline "${r.title}" — tell them why (optional):`)
+                        if (reply !== null) onDecline(r.id, reply)
+                      }}
+                    >
+                      Decline
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <p className="rs-fair">Waiting for the owner or an admin to answer.</p>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {outgoing.length > 0 && (
+        <>
+          <span className="req-sub">Sent by this team</span>
+          <ul className="req-list">
+            {outgoing.map((r) => (
+              <li key={r.id} className="req-item">
+                <div className="req-row">
+                  <span className="req-title">{r.title}</span>
+                  {statusChip(r)}
+                </div>
+                <div className="req-meta">
+                  to {spaceName(r.toCaseId)} · {fmtWhen(r.createdAt)}
+                  {r.status === "fulfilled" && r.fileId && !files.some((f) => f.id === r.fileId) && " · copy deleted"}
+                </div>
+                {r.status === "declined" && r.reply && <p className="req-note">"{r.reply}"</p>}
+                {r.status === "pending" && (canManage || r.requestedBy === currentMemberId) && (
+                  <button type="button" className="member-action req-cancel" onClick={() => onCancel(r.id)}>Cancel</button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </section>
   )
 }

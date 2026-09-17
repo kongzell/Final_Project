@@ -1,5 +1,5 @@
-from app.models import Case, CaseFile, Project, Task
-from app.schemas import CaseFileOut, CaseOut, ProjectOut, TaskOut
+from app.models import Case, CaseFile, DocumentRequest, Project, Task
+from app.schemas import CaseFileOut, CaseOut, DocumentRequestOut, ProjectOut, TaskOut
 
 
 def _actual_hours(task: Task) -> float | None:
@@ -41,6 +41,12 @@ def file_out(f: CaseFile) -> CaseFileOut:
     """เฉพาะ metadata — ตัวไฟล์ (data) ไม่ออกทางนี้เด็ดขาด ไม่งั้นรายการเรื่องหนักหลาย MB"""
     return CaseFileOut(
         id=f.id,
+        title=f.title,
+        status=f.status,
+        doc_number=f.doc_number,
+        agency=f.agency,
+        deadline=f.deadline,
+        project_id=f.project_id,
         filename=f.filename,
         content_type=f.content_type,
         size=f.size,
@@ -52,19 +58,33 @@ def file_out(f: CaseFile) -> CaseFileOut:
     )
 
 
+def request_out(r: DocumentRequest) -> DocumentRequestOut:
+    return DocumentRequestOut(
+        id=r.id,
+        from_case_id=r.from_case_id,
+        to_case_id=r.to_case_id,
+        requested_by=r.requested_by,
+        title=r.title,
+        note=r.note,
+        status=r.status,
+        file_id=r.file_id,
+        reply=r.reply,
+        resolved_by=r.resolved_by,
+        resolved_at=r.resolved_at,
+        created_at=r.created_at,
+    )
+
+
 def case_out(case: Case) -> CaseOut:
     return CaseOut(
         id=case.id,
         title=case.title,
-        status=case.status,
-        doc_number=case.doc_number,
-        agency=case.agency,
-        deadline=case.deadline,
         owner_id=case.owner_id,
-        project_id=case.project_id,
         member_ids=[m.id for m in case.members],
         admin_ids=sorted(case.admin_ids),
         files=[file_out(f) for f in case.files],
+        requests_out=[request_out(r) for r in case.requests_out],
+        requests_in=[request_out(r) for r in case.requests_in],
         created_at=case.created_at,
     )
 

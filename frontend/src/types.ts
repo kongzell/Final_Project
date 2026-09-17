@@ -75,8 +75,17 @@ export type CaseStatus = "received" | "in_progress" | "delivered" | "closed"
 export type FileCategory = "tor" | "contract" | "amendment" | "minutes" | "acceptance" | "other"
 
 /** เอกสาร 1 ฉบับในเรื่อง — metadata เท่านั้น ตัวไฟล์ดึงผ่าน caseFileUrl() */
+/** เอกสาร 1 ใบในที่เก็บ — เรื่อง/สถานะ/โปรเจคเป็นของใบนี้เอง */
 export type CaseFile = {
   id: string
+  /** เรื่อง — ตั้งต้นจากชื่อไฟล์ แก้ได้ */
+  title: string
+  status: CaseStatus
+  docNumber: string | null
+  agency: string | null
+  deadline: string | null
+  /** โปรเจคที่ใบนี้เกี่ยว — null = ไม่เกี่ยวโปรเจค */
+  projectId: string | null
   filename: string
   contentType: string
   size: number
@@ -88,20 +97,45 @@ export type CaseFile = {
   uploadedAt: string
 }
 
-/** "เรื่อง" ในหน้า Documents — แฟ้มที่รวมเอกสารของงานเดียวกัน มีสมาชิกของตัวเอง */
+export type RequestStatus = "pending" | "fulfilled" | "declined"
+
+/** คำขอเอกสารข้ามที่เก็บ — ชื่อที่เก็บอีกฝั่งดูจาก CaseDirectoryEntry */
+export type DocumentRequest = {
+  id: string
+  fromCaseId: string
+  toCaseId: string
+  requestedBy: string | null
+  title: string
+  note: string | null
+  status: RequestStatus
+  /** สำเนาที่ส่งเข้าที่เก็บผู้ขอ (เฉพาะ fulfilled) */
+  fileId: string | null
+  reply: string | null
+  resolvedBy: string | null
+  resolvedAt: string | null
+  createdAt: string
+}
+
+/** ที่เก็บทุกอันในระบบแบบย่อ — ไว้เลือกปลายทางตอนขอเอกสาร */
+export type CaseDirectoryEntry = {
+  id: string
+  title: string
+  ownerId: string | null
+  memberCount: number
+  isMember: boolean
+}
+
+/** Document = ที่เก็บเอกสารกลางของทีม — มีแค่ชื่อกับสมาชิก เอกสารทุกเรื่องส่งเข้าที่นี่ */
 export type Case = {
   id: string
   title: string
-  status: CaseStatus
-  docNumber: string | null
-  agency: string | null
-  deadline: string | null
   ownerId: string | null
-  /** โปรเจคที่ผูก (1:1) — null = ยังไม่ผูก */
-  projectId: string | null
   memberIds: string[]
   adminIds: string[]
   files: CaseFile[]
+  /** คำขอที่ที่เก็บนี้ส่งออก / ได้รับ */
+  requestsOut: DocumentRequest[]
+  requestsIn: DocumentRequest[]
   createdAt: string
 }
 

@@ -1,6 +1,6 @@
 /** เรียก backend ผ่าน path สัมพัทธ์ — vite (dev) และ nginx (prod) proxy /api ให้อยู่แล้ว */
 
-import type { Case, CaseStatus, FileCategory, Project, PriorityId, StatusId, Task } from "./types"
+import type { Case, CaseDirectoryEntry, CaseStatus, FileCategory, Project, PriorityId, StatusId, Task } from "./types"
 
 
 export type SubtaskSuggestion = {
@@ -81,15 +81,9 @@ export async function getCases(): Promise<Case[]> {
   return res.json()
 }
 
-export type NewCase = {
-  title: string
-  docNumber?: string
-  agency?: string
-  deadline?: string
-  projectId?: string
-}
+export type NewCase = { title: string }
 
-/** สร้าง Document เปล่า (พื้นที่ทำงาน) — ไฟล์ค่อยเพิ่มทีหลังด้วย addCaseFile */
+/** สร้างที่เก็บด้วยชื่อ — เอกสารค่อยส่งเข้ามาทีหลังด้วย addCaseFile */
 export async function createCase(input: NewCase): Promise<Case> {
   const res = await fetch("/api/cases", {
     method: "POST",
@@ -100,15 +94,9 @@ export async function createCase(input: NewCase): Promise<Case> {
   return res.json()
 }
 
-export type CasePatch = Partial<{
-  title: string
-  status: CaseStatus
-  docNumber: string | null
-  agency: string | null
-  deadline: string | null
-  projectId: string | null
-}>
+export type CasePatch = { title: string }
 
+/** เปลี่ยนชื่อที่เก็บ — อย่างอื่นแก้ที่เอกสารแต่ละใบด้วย updateCaseFile */
 export async function updateCase(id: string, patch: CasePatch): Promise<Case> {
   const res = await fetch(`/api/cases/${id}`, {
     method: "PATCH",
@@ -124,18 +112,100 @@ export async function deleteCase(id: string): Promise<void> {
   if (!res.ok) throw new ApiError(await readError(res), res.status)
 }
 
-/** เพิ่มเอกสารที่เกี่ยวข้อง — ส่ง replacesId เมื่อเป็นฉบับแก้ไขของไฟล์เดิม */
-export async function addCaseFile(
-  caseId: string,
-  file: File,
-  category: FileCategory,
-  replacesId?: string,
-): Promise<Case> {
+export type NewCaseFile = {
+  file: File
+  category: FileCategory
+  /** เรื่อง — ว่างแล้วฝั่ง API ใช้ชื่อไฟล์ */
+  title?: string
+  docNumber?: string
+  agency?: string
+  deadline?: string
+  projectId?: string
+  /** ใส่เมื่อเป็นฉบับแก้ไขของใบเดิม — สืบทอดเรื่อง/โปรเจคจากใบนั้น */
+  replacesId?: string
+}
+
+/** ส่งเอกสารเข้าที่เก็บ — ฟิลด์เป็น snake_case เพราะเป็น form ไม่ผ่าน alias ของ Pydantic */
+export async function addCaseFile(caseId: string, input: NewCaseFile): Promise<Case> {
   const form = new FormData()
-  form.append("file", file)
-  form.append("category", category)
-  if (replacesId) form.append("replaces_id", replacesId)
+  form.append("file", input.file)
+  form.append("category", input.category)
+  if (input.title) form.append("title", input.title)
+  if (input.docNumber) form.append("doc_number", input.docNumber)
+  if (input.agency) form.append("agency", input.agency)
+  if (input.deadline) form.append("deadline", input.deadline)
+  if (input.projectId) form.append("project_id", input.projectId)
+  if (input.replacesId) form.append("replaces_id", input.replacesId)
   const res = await fetch(`/api/cases/${caseId}/files`, { method: "POST", body: form })
+  if (!res.ok) throw new ApiError(await readError(res), res.status)
+  return res.json()
+}
+
+export type CaseFilePatch = Partial<{
+  title: string
+  status: CaseStatus
+  category: FileCategory
+  docNumber: string | null
+  agency: string | null
+  deadline: string | null
+  projectId: string | null
+}>
+
+/** แก้ข้อมูลเอกสารใบเดียว — คืน Document ทั้งอันเพราะหน้าเว็บถือเป็นก้อนเดียว */
+export async function updateCaseFile(caseId: string, fileId: string, patch: CaseFilePatch): Promise<Case> {
+  const res = await fetch(`/api/cases/${caseId}/files/${fileId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  })
+  if (!res.ok) throw new ApiError(await readError(res), res.status)
+  return res.json()
+}
+
+/** ที่เก็บทุกอันในระบบ (ชื่อ+จำนวนคน ไม่มีไฟล์) — ไว้เลือกปลายทางตอนขอเอกสาร */
+export async function getCaseDirectory(): Promise<CaseDirectoryEntry[]> {
+  const res = await fetch("/api/cases/directory")
+  if (!res.ok) throw new ApiError(await readError(res), res.status)
+  return res.json()
+}
+
+export type NewDocumentRequest = { toCaseId: string; title: string; note?: string }
+
+/** ขอเอกสารจากที่เก็บอื่น — คืนที่เก็บผู้ขอ (มี requestsOut ใหม่) */
+export async function createDocumentRequest(caseId: string, input: NewDocumentRequest): Promise<Case> {
+  const res = await fetch(`/api/cases/${caseId}/requests`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  })
+  if (!res.ok) throw new ApiError(await readError(res), res.status)
+  return res.json()
+}
+
+/** ผู้ดูแลของที่เก็บที่ถูกขอ ส่งไฟล์ของตัวเองให้ — ระบบคัดลอกเข้าที่เก็บผู้ขอ */
+export async function fulfillDocumentRequest(caseId: string, requestId: string, fileId: string): Promise<Case> {
+  const res = await fetch(`/api/cases/${caseId}/requests/${requestId}/fulfill`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ fileId }),
+  })
+  if (!res.ok) throw new ApiError(await readError(res), res.status)
+  return res.json()
+}
+
+export async function declineDocumentRequest(caseId: string, requestId: string, reply: string): Promise<Case> {
+  const res = await fetch(`/api/cases/${caseId}/requests/${requestId}/decline`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reply }),
+  })
+  if (!res.ok) throw new ApiError(await readError(res), res.status)
+  return res.json()
+}
+
+/** ผู้ขอถอนคำขอที่ยังค้าง */
+export async function cancelDocumentRequest(caseId: string, requestId: string): Promise<Case> {
+  const res = await fetch(`/api/cases/${caseId}/requests/${requestId}`, { method: "DELETE" })
   if (!res.ok) throw new ApiError(await readError(res), res.status)
   return res.json()
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import type { Case, Member, PriorityId, Project, StatusId } from "./types"
+import type { Case, CaseDirectoryEntry, Member, PriorityId, Project, StatusId } from "./types"
 import type { ThemeId } from "./themes"
 import { loadTheme, saveTheme } from "./themes"
 import type { AuthStatus, NewCase, SubtaskSuggestion } from "./api"
@@ -16,6 +16,7 @@ import type { SourceFileLookup, TaskDraft } from "./components/Board"
 import { Board } from "./components/Board"
 import type { DashboardTab } from "./components/Dashboard"
 import { Dashboard } from "./components/Dashboard"
+import { DocumentFileModal } from "./components/DocumentFileModal"
 import { DocumentPanel, DocumentsView } from "./components/Documents"
 import { LoginScreen } from "./components/LoginScreen"
 import { RightSidebar } from "./components/RightSidebar"
@@ -49,6 +50,9 @@ export default function App() {
   /** "board" = บอร์ดโปรเจค (เดิม) · "documents" = หน้าเรื่อง/เอกสาร */
   const [view, setView] = useState<"board" | "documents">("board")
   const [cases, setCases] = useState<Case[]>([])
+  const [directory, setDirectory] = useState<CaseDirectoryEntry[]>([])
+  /** modal ส่งเอกสารจากบอร์ด — ผูกโปรเจคที่เปิดอยู่ให้เลย */
+  const [boardDocOpen, setBoardDocOpen] = useState(false)
   const [activeCaseId, setActiveCaseId] = useState<string | null>(null)
   const [docModalOpen, setDocModalOpen] = useState(false)
   /** id ของเรื่องที่กำลังจัดการสมาชิกอยู่ — null = ปิด */
@@ -114,7 +118,10 @@ export default function App() {
 
   const refreshCases = useCallback(async () => {
     try {
-      setCases(await api.getCases())
+      // สารบบที่เก็บโหลดคู่กัน — ใช้แปลง id → ชื่อทีมในแผงคำขอ และเลือกปลายทางตอนขอเอกสาร
+      const [mine, all] = await Promise.all([api.getCases(), api.getCaseDirectory()])
+      setCases(mine)
+      setDirectory(all)
     } catch {
       // ยังไม่ล็อกอิน — หน้า LoginScreen บอกอยู่แล้ว
       setCases([])
@@ -206,7 +213,8 @@ export default function App() {
       if (target.sourceFileId) {
         // มีงานลงบอร์ดแล้วถือว่าเรื่องเริ่มดำเนินการ — ขยับให้เองเฉพาะตอนยังเป็น "รับเรื่อง"
         const c = cases.find((x) => x.files.some((f) => f.id === target.sourceFileId))
-        if (c && c.status === "received") await api.updateCase(c.id, { status: "in_progress" })
+        const f = c?.files.find((x) => x.id === target.sourceFileId)
+        if (c && f && f.status === "received") await api.updateCaseFile(c.id, f.id, { status: "in_progress" })
         await refreshCases()
         setActiveProjectId(target.projectId)
         setView("board")
@@ -303,8 +311,12 @@ export default function App() {
       setActiveCaseId(null)
       await refreshCases()
     },
-    onAddFile: async (id: string, file: File, category: Case["files"][number]["category"], replacesId?: string) => {
-      await api.addCaseFile(id, file, category, replacesId)
+    onAddFile: async (id: string, input: api.NewCaseFile) => {
+      await api.addCaseFile(id, input)
+      await refreshCases()
+    },
+    onUpdateFile: async (id: string, fileId: string, patch: api.CaseFilePatch) => {
+      await api.updateCaseFile(id, fileId, patch)
       await refreshCases()
     },
     onDeleteFile: async (id: string, fileId: string) => {
@@ -313,25 +325,57 @@ export default function App() {
     },
     onManageMembers: (id: string) => setCaseMemberModalId(id),
     onBreakdown: (c: Case, file: Case["files"][number]) => {
-      if (!c.projectId) return
-      setAiFile({ caseId: c.id, fileId: file.id, filename: file.filename, caseTitle: c.title, projectId: c.projectId })
+      if (!file.projectId) return
+      setAiFile({ caseId: c.id, fileId: file.id, filename: file.filename, caseTitle: file.title, projectId: file.projectId })
     },
     onExtract: async (c: Case, file: Case["files"][number]) => {
       // เติมเฉพาะช่องที่ยังว่าง — ค่าที่คนพิมพ์ไว้แล้วถือว่าถูกกว่าที่ AI เดา
+      // เรื่องนับว่า "ว่าง" ถ้ายังเป็นชื่อไฟล์ตั้งต้นอยู่
       const meta = await api.extractFileMetadata(c.id, file.id)
-      const patch: api.CasePatch = {}
-      if (!c.docNumber && meta.docNumber) patch.docNumber = meta.docNumber
-      if (!c.agency && meta.agency) patch.agency = meta.agency
-      if (!c.deadline && meta.deadline) patch.deadline = meta.deadline
+      const patch: api.CaseFilePatch = {}
+      const defaultTitle = file.filename.replace(/\.[^.]+$/, "")
+      if (file.title === defaultTitle && meta.title) patch.title = meta.title
+      if (!file.docNumber && meta.docNumber) patch.docNumber = meta.docNumber
+      if (!file.agency && meta.agency) patch.agency = meta.agency
+      if (!file.deadline && meta.deadline) patch.deadline = meta.deadline
       const filled = Object.keys(patch)
       if (filled.length > 0) {
-        await api.updateCase(c.id, patch)
+        await api.updateCaseFile(c.id, file.id, patch)
         await refreshCases()
       }
       const what = filled.length > 0 ? `filled ${filled.join(", ")}` : "nothing to fill — the details were already set"
       return `AI read ${file.filename}: ${what}.${meta.summary ? ` ${meta.summary}` : ""}`
     },
+    onRequest: async (id: string, input: api.NewDocumentRequest) => {
+      await api.createDocumentRequest(id, input)
+      await refreshCases()
+    },
+    onFulfill: async (id: string, requestId: string, fileId: string) => {
+      await api.fulfillDocumentRequest(id, requestId, fileId)
+      await refreshCases()
+    },
+    onFulfillUpload: async (id: string, requestId: string, input: api.NewCaseFile) => {
+      // อัปโหลดก่อนแล้วหาไฟล์ที่เพิ่งเพิ่ม (id ที่ไม่เคยมี) ค่อยเอาไปตอบคำขอ — API ตอบกลับทั้ง Document
+      const before = new Set(cases.find((c) => c.id === id)?.files.map((f) => f.id) ?? [])
+      const updated = await api.addCaseFile(id, input)
+      const added = updated.files.find((f) => !before.has(f.id))
+      if (added) await api.fulfillDocumentRequest(id, requestId, added.id)
+      await refreshCases()
+    },
+    onDecline: async (id: string, requestId: string, reply: string) => {
+      await api.declineDocumentRequest(id, requestId, reply)
+      await refreshCases()
+    },
+    onCancelRequest: async (id: string, requestId: string) => {
+      await api.cancelDocumentRequest(id, requestId)
+      await refreshCases()
+    },
   }
+
+  /** ที่เก็บที่มีเอกสารของโปรเจคที่เปิดอยู่แล้ว — ตั้งเป็นค่าเริ่มต้นตอนส่งเอกสารจากบอร์ด */
+  const boardDefaultSpace = project
+    ? cases.find((c) => c.files.some((f) => f.projectId === project.id))?.id
+    : undefined
 
   const activeCaseView = cases.find((c) => c.id === activeCaseId) ?? null
 
@@ -345,10 +389,6 @@ export default function App() {
   const caseAvailable = activeCase ? allMembers.filter((m) => !activeCase.memberIds.includes(m.id)) : []
   const caseIsOwner = activeCase !== null && me !== null && activeCase.ownerId === me
 
-  /** โปรเจคที่ผูกเรื่องได้ตอนสร้าง — ฉันเป็นเจ้าของ/admin และยังไม่ถูกเรื่องไหนผูก */
-  const linkableProjects = projects.filter(
-    (p) => me !== null && (p.ownerId === me || p.adminIds.includes(me)) && !cases.some((c) => c.projectId === p.id),
-  )
 
   const toggleStar = () => {
     if (!project) return
@@ -435,6 +475,7 @@ export default function App() {
         ) : view === "documents" ? (
           <DocumentsView
             cases={cases}
+            directory={directory}
             projects={projects}
             members={allMembers}
             currentMemberId={me}
@@ -487,14 +528,16 @@ export default function App() {
           <DocumentPanel
             key={activeCaseView.id}
             c={activeCaseView}
-            project={projects.find((p) => p.id === activeCaseView.projectId) ?? null}
-            projects={projects}
             members={allMembers}
+            directory={directory}
+            projects={projects}
             currentMemberId={me}
-            onUpdate={caseActions.onUpdate}
             onDelete={caseActions.onDelete}
             onManageMembers={caseActions.onManageMembers}
-            onOpenProject={(id) => { setActiveProjectId(id); setView("board") }}
+            onFulfill={caseActions.onFulfill}
+            onFulfillUpload={caseActions.onFulfillUpload}
+            onDecline={caseActions.onDecline}
+            onCancelRequest={caseActions.onCancelRequest}
             onClose={() => setActiveCaseId(null)}
           />
         </div>
@@ -517,6 +560,9 @@ export default function App() {
             setDashTab("member")
           }}
           canManage={canManage}
+          cases={cases}
+          onAddDocument={() => setBoardDocOpen(true)}
+          onOpenDocument={(id) => { setView("documents"); setActiveCaseId(id) }}
         />
       </div>
       )}
@@ -594,9 +640,20 @@ export default function App() {
         />
       )}
 
+      {boardDocOpen && project && (
+        <DocumentFileModal
+          linkable={[project]}
+          spaces={cases}
+          defaultSpaceId={boardDefaultSpace}
+          lockedProject={project}
+          onClose={() => setBoardDocOpen(false)}
+          onSubmit={(input, spaceId) => caseActions.onAddFile(spaceId, input)}
+          onSave={async () => {}}
+        />
+      )}
+
       {docModalOpen && (
         <NewDocumentModal
-          linkable={linkableProjects}
           onClose={() => setDocModalOpen(false)}
           onCreate={createCase}
         />

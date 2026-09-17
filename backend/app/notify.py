@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.models import Case, CaseFile, Member, Project, Task, case_members, project_members
+from app.models import Case, CaseFile, DocumentRequest, Member, Project, Task, case_members, project_members
 
 log = logging.getLogger("notify")
 
@@ -68,15 +68,61 @@ async def case_emails(session: AsyncSession, case_id: str, exclude: set[str]) ->
     return [e for e in rows if e]
 
 
-def file_added(case: Case, f: CaseFile, who: Member) -> tuple[str, str]:
-    """มีคนเพิ่มเอกสารเข้าเรื่อง — สมาชิกคนอื่นในเรื่องควรรู้ โดยเฉพาะฉบับแก้ไข"""
-    what = f"ฉบับใหม่ (v{f.version}) ของเอกสารเดิม" if f.replaces_id else "เอกสารใหม่"
-    subject = f"[{case.title}] {who.name} เพิ่ม{what}: {f.filename}"
-    body = "\n".join([
-        f"{who.name} เพิ่ม{what}เข้าเรื่อง \"{case.title}\"",
+async def case_manager_emails(session: AsyncSession, case: Case, exclude: set[str]) -> list[str]:
+    """อีเมลของเจ้าของ + admin ของที่เก็บ — คำขอเอกสารส่งถึงคนที่ตัดสินใจได้ ไม่รบกวนสมาชิกทั้งหมด"""
+    ids = {case.owner_id, *case.admin_ids} - {None} - exclude
+    if not ids:
+        return []
+    rows = await session.scalars(select(Member.email).where(Member.id.in_(ids), Member.email.is_not(None)))
+    return [e for e in rows if e]
+
+
+def document_requested(to_case: Case, from_case: Case, req: DocumentRequest, who: Member) -> tuple[str, str]:
+    """มีทีมอื่นขอเอกสารจากที่เก็บนี้ — แจ้งเจ้าของ/admin ให้ไปเลือกไฟล์ส่ง"""
+    subject = f"[{to_case.title}] {from_case.title} ขอเอกสาร: {req.title}"
+    lines = [
+        f"{who.name} ({from_case.title}) ขอเอกสารจาก \"{to_case.title}\"",
         "",
-        f"  {f.filename}  ({f.category}, v{f.version})",
-    ])
+        f"  เอกสารที่ขอ: {req.title}",
+    ]
+    if req.note:
+        lines.append(f"  หมายเหตุ: {req.note}")
+    lines += ["", "เปิดที่เก็บแล้วเลือกไฟล์ส่งให้ หรือปฏิเสธพร้อมเหตุผลได้ที่แผง Requests"]
+    url = get_settings().app_url
+    return subject, "\n".join(lines) + f"\n\nเปิดหน้า Documents: {url}\n\n--\nอีเมลนี้ส่งอัตโนมัติจากระบบ 3work"
+
+
+def document_request_resolved(from_case: Case, to_case: Case, req: DocumentRequest, who: Member) -> tuple[str, str]:
+    """ผลคำขอกลับมาถึงผู้ขอ — ได้ไฟล์แล้ว หรือถูกปฏิเสธ"""
+    if req.status == "fulfilled":
+        subject = f"[{from_case.title}] ได้รับเอกสารแล้ว: {req.title}"
+        lines = [f"{who.name} ({to_case.title}) ส่งเอกสาร \"{req.title}\" เข้าที่เก็บ \"{from_case.title}\" แล้ว"]
+    else:
+        subject = f"[{from_case.title}] คำขอเอกสารถูกปฏิเสธ: {req.title}"
+        lines = [f"{who.name} ({to_case.title}) ปฏิเสธคำขอเอกสาร \"{req.title}\""]
+        if req.reply:
+            lines += ["", f"  เหตุผล: {req.reply}"]
+    url = get_settings().app_url
+    return subject, "\n".join(lines) + f"\n\nเปิดหน้า Documents: {url}\n\n--\nอีเมลนี้ส่งอัตโนมัติจากระบบ 3work"
+
+
+def file_added(case: Case, f: CaseFile, who: Member) -> tuple[str, str]:
+    """มีคนส่งเอกสารเข้าที่เก็บ — สมาชิกคนอื่นควรรู้ โดยเฉพาะฉบับแก้ไข"""
+    what = f"ฉบับใหม่ (v{f.version}) ของเอกสารเดิม" if f.replaces_id else "เอกสารใหม่"
+    subject = f"[{case.title}] {who.name} ส่ง{what}: {f.title}"
+    lines = [
+        f"{who.name} ส่ง{what}เข้า \"{case.title}\"",
+        "",
+        f"  เรื่อง: {f.title}",
+        f"  ไฟล์: {f.filename}  ({f.category}, v{f.version})",
+    ]
+    if f.doc_number:
+        lines.append(f"  เลขที่: {f.doc_number}")
+    if f.agency:
+        lines.append(f"  จาก: {f.agency}")
+    if f.deadline:
+        lines.append(f"  กำหนดส่ง: {f.deadline.isoformat()}")
+    body = "\n".join(lines)
     url = get_settings().app_url
     return subject, body + f"\n\nเปิดหน้า Documents: {url}\n\n--\nอีเมลนี้ส่งอัตโนมัติจากระบบ 3work"
 

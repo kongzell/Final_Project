@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react"
 import type { Commit, SystemHealth, WebhookEvent } from "../api"
 import { applySuggestion, getCommits, getSystemHealth, getWebhookEvents } from "../api"
-import type { Member, Project, Task } from "../types"
-import { openTasksOf, taskPoints, WORKLOAD_CAPACITY, workloadLevel } from "../types"
+import { caseFileUrl } from "../api"
+import type { Case, CaseFile, Member, Project, Task } from "../types"
+import { CASE_STATUSES, currentFiles, openTasksOf, taskPoints, WORKLOAD_CAPACITY, workloadLevel } from "../types"
 import { Avatar } from "./Avatar"
-import { IconPlus } from "./Icons"
+import { IconFile, IconPlus } from "./Icons"
 import "./RightSidebar.css"
 
 type Props = {
@@ -16,6 +17,10 @@ type Props = {
   onOpenMember: (id: string) => void
   /** เจ้าของโปรเจคเท่านั้นที่เพิ่มพนักงานได้ */
   canManage: boolean
+  /** ที่เก็บเอกสารที่ฉันเป็นสมาชิก — เอกสารที่ผูกโปรเจคนี้กระจายอยู่ในนั้น */
+  cases: Case[]
+  onAddDocument: () => void
+  onOpenDocument: (caseId: string) => void
 }
 
 export function RightSidebar({
@@ -26,10 +31,16 @@ export function RightSidebar({
   onOpenMember,
   onOpenProject,
   canManage,
+  cases,
+  onAddDocument,
+  onOpenDocument,
 }: Props) {
   return (
     <aside className="rs">
       {project && <ProjectStats project={project} onOpen={onOpenProject} />}
+      {project && (
+        <ProjectDocuments project={project} cases={cases} onAdd={onAddDocument} onOpen={onOpenDocument} />
+      )}
       {project && (
         <TeamPanel
           members={members}
@@ -178,6 +189,52 @@ function TeamPanel({
           <IconPlus size={14} /> Add member
         </button>
       )}
+    </section>
+  )
+}
+
+/* ---------- เอกสารของโปรเจค (จากทุกที่เก็บที่ฉันอยู่) ---------- */
+
+function ProjectDocuments({
+  project, cases, onAdd, onOpen,
+}: { project: Project; cases: Case[]; onAdd: () => void; onOpen: (caseId: string) => void }) {
+  // เอกสารผูกกับโปรเจครายใบ — ใบที่ผูกโปรเจคนี้อาจกระจายอยู่หลายที่เก็บ รวมมาให้ดูที่เดียว
+  const rows: { c: Case; f: CaseFile }[] = cases.flatMap((c) =>
+    currentFiles(c).filter((f) => f.projectId === project.id).map((f) => ({ c, f })),
+  )
+  const statusOf = (f: CaseFile) => CASE_STATUSES.find((s) => s.id === f.status)
+
+  return (
+    <section className="rs-panel">
+      <header className="rs-head">
+        <span className="rs-title">Documents</span>
+        <span className="rs-count">{rows.length}</span>
+      </header>
+
+      {rows.length === 0 ? (
+        <p className="rs-empty">No document linked to this project yet</p>
+      ) : (
+        <ul className="rs-docs">
+          {rows.map(({ c, f }) => (
+            <li key={f.id}>
+              <button type="button" className="rs-doc" onClick={() => onOpen(c.id)} title={`Open in ${c.title}`}>
+                <span className="rs-doc-top">
+                  <span className="dot" style={{ background: statusOf(f)?.color }} />
+                  <span className="rs-doc-title">{f.title}</span>
+                </span>
+                <span className="rs-doc-meta">{f.category.toUpperCase()} · {c.title}</span>
+              </button>
+              <a className="rs-doc-open" href={caseFileUrl(c.id, f.id)} target="_blank" rel="noreferrer" title={`Open ${f.filename}`}>
+                <IconFile size={13} />
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <button type="button" className="rs-add-member" onClick={onAdd}>
+        <IconPlus size={14} /> Add document
+      </button>
     </section>
   )
 }

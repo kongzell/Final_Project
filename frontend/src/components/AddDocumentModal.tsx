@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react"
 import type { NewCase } from "../api"
-import type { Project } from "../types"
 import { IconClose, IconFolder } from "./Icons"
 import "./Modal.css"
 import "./Documents.css"
@@ -10,19 +9,13 @@ export const ACCEPT = ".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.txt"
 export const MAX_BYTES = 5 * 1024 * 1024
 
 type Props = {
-  /** โปรเจคที่ผูกได้ — เฉพาะที่ฉันเป็นเจ้าของ/admin และยังไม่ถูกเรื่องอื่นผูก */
-  linkable: Project[]
   onClose: () => void
   onCreate: (input: NewCase) => Promise<void>
 }
 
-/** สร้าง Document (พื้นที่ทำงาน) ด้วยชื่อ — เหมือน New Project ไฟล์ค่อยเพิ่มข้างใน */
-export function NewDocumentModal({ linkable, onClose, onCreate }: Props) {
+/** สร้าง Document (ที่เก็บเอกสารกลางของทีม) ด้วยชื่อ — เหมือน New Project เอกสารค่อยส่งเข้าข้างใน */
+export function NewDocumentModal({ onClose, onCreate }: Props) {
   const [title, setTitle] = useState("")
-  const [docNumber, setDocNumber] = useState("")
-  const [agency, setAgency] = useState("")
-  const [deadline, setDeadline] = useState("")
-  const [projectId, setProjectId] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -37,13 +30,7 @@ export function NewDocumentModal({ linkable, onClose, onCreate }: Props) {
     setBusy(true)
     setError(null)
     try {
-      await onCreate({
-        title: title.trim(),
-        docNumber: docNumber.trim() || undefined,
-        agency: agency.trim() || undefined,
-        deadline: deadline || undefined,
-        projectId: projectId || undefined,
-      })
+      await onCreate({ title: title.trim() })
       onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not create the document")
@@ -64,6 +51,7 @@ export function NewDocumentModal({ linkable, onClose, onCreate }: Props) {
         <header className="modal-head">
           <div>
             <h2 className="modal-title"><IconFolder size={16} /> New document</h2>
+            <p className="modal-sub">One shared space for a team — every document they receive goes in here</p>
           </div>
           <button type="button" className="modal-close" onClick={onClose} title="Close">
             <IconClose size={16} />
@@ -76,38 +64,13 @@ export function NewDocumentModal({ linkable, onClose, onCreate }: Props) {
             <input
               autoFocus
               className="field-input"
-              placeholder="e.g. TOR ระบบจองห้องประชุม"
+              placeholder="e.g. เอกสารเข้า ฝ่ายไอที"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && void submit()}
             />
           </label>
-
-          <div className="field-grid">
-            <label className="field">
-              <span className="field-label">Doc number (optional)</span>
-              <input className="field-input" placeholder="01/1234" value={docNumber} onChange={(e) => setDocNumber(e.target.value)} />
-            </label>
-            <label className="field">
-              <span className="field-label">Deadline (optional)</span>
-              <input className="field-input" type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
-            </label>
-          </div>
-
-          <label className="field">
-            <span className="field-label">Agency (optional)</span>
-            <input className="field-input" placeholder="Who sent it" value={agency} onChange={(e) => setAgency(e.target.value)} />
-          </label>
-
-          <label className="field">
-            <span className="field-label">Project (optional — link later from the panel)</span>
-            <select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-              <option value="">— No project yet —</option>
-              {linkable.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}{p.githubRepo ? ` · ${p.githubRepo}` : ""}</option>
-              ))}
-            </select>
-          </label>
+          <p className="field-hint">Subject, doc number, deadline and project are set on each document you add, not here.</p>
 
           {error && <p className="modal-error">{error}</p>}
         </div>

@@ -188,7 +188,16 @@ FileCategory = Literal["tor", "contract", "amendment", "minutes", "acceptance", 
 
 
 class CaseFileOut(ApiModel):
+    """เอกสาร 1 ใบ — เรื่อง/สถานะ/โปรเจคเป็นของใบนี้เอง ไม่ใช่ของ Document"""
+
     id: str
+    title: str
+    status: CaseStatus
+    doc_number: str | None = None
+    agency: str | None = None
+    deadline: date | None = None
+    #: โปรเจคที่ใบนี้เกี่ยว — null = ไม่เกี่ยวโปรเจค ปุ่มแตกงานยังกดไม่ได้
+    project_id: str | None = None
     filename: str
     content_type: str
     size: int
@@ -200,24 +209,78 @@ class CaseFileOut(ApiModel):
     uploaded_at: datetime
 
 
-class CaseOut(ApiModel):
+RequestStatus = Literal["pending", "fulfilled", "declined"]
+
+
+class DocumentRequestOut(ApiModel):
+    """คำขอเอกสารข้ามที่เก็บ — ชื่อที่เก็บอีกฝั่งดูจาก /api/cases/directory"""
+
+    id: str
+    from_case_id: str
+    to_case_id: str
+    requested_by: str | None = None
+    title: str
+    note: str | None = None
+    status: RequestStatus
+    #: สำเนาที่ส่งเข้าที่เก็บผู้ขอ (เฉพาะ fulfilled)
+    file_id: str | None = None
+    reply: str | None = None
+    resolved_by: str | None = None
+    resolved_at: datetime | None = None
+    created_at: datetime
+
+
+class DocumentRequestCreate(ApiModel):
+    to_case_id: str
+    title: str = Field(min_length=1, max_length=300)
+    note: str = Field(default="", max_length=1000)
+
+    @field_validator("title")
+    @classmethod
+    def _not_blank(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("title must not be blank")
+        return v
+
+
+class DocumentRequestFulfill(ApiModel):
+    #: ไฟล์ในที่เก็บผู้ให้ที่จะคัดลอกไปให้ผู้ขอ
+    file_id: str
+
+
+class DocumentRequestDecline(ApiModel):
+    reply: str = Field(default="", max_length=1000)
+
+
+class CaseDirectoryEntry(ApiModel):
+    """ที่เก็บทุกอันในระบบแบบย่อ — ไว้เลือกปลายทางตอนขอเอกสาร ไม่มีรายการไฟล์"""
+
     id: str
     title: str
-    status: CaseStatus
-    doc_number: str | None = None
-    agency: str | None = None
-    deadline: date | None = None
     owner_id: str | None = None
-    #: โปรเจคที่ผูก (1:1) — null = ยังไม่ผูก ปุ่มแตกงานยังกดไม่ได้
-    project_id: str | None = None
+    member_count: int
+    #: ฉันเป็นสมาชิกอยู่แล้วหรือไม่
+    is_member: bool
+
+
+class CaseOut(ApiModel):
+    """Document = ที่เก็บเอกสารกลางของทีม — มีแค่ชื่อกับสมาชิก"""
+
+    id: str
+    title: str
+    owner_id: str | None = None
     member_ids: list[str]
     admin_ids: list[str] = []
     files: list[CaseFileOut]
+    #: คำขอที่ที่เก็บนี้ส่งออก / ได้รับ
+    requests_out: list[DocumentRequestOut] = []
+    requests_in: list[DocumentRequestOut] = []
     created_at: datetime
 
 
 class CaseCreate(ApiModel):
-    """สร้าง Document เปล่า — เหมือนสร้างโปรเจค ไฟล์ค่อยเพิ่มทีหลัง"""
+    """สร้าง Document (ที่เก็บ) ด้วยชื่อ — เหมือนสร้างโปรเจค เอกสารค่อยส่งเข้ามาทีหลัง"""
 
     title: str = Field(min_length=1, max_length=300)
 
@@ -229,17 +292,20 @@ class CaseCreate(ApiModel):
         if not v:
             raise ValueError("title must not be blank")
         return v
-    doc_number: str | None = Field(default=None, max_length=60)
-    agency: str | None = Field(default=None, max_length=160)
-    deadline: date | None = None
-    project_id: str | None = None
 
 
 class CaseUpdate(ApiModel):
-    """ทุกฟิลด์ไม่บังคับ — ส่งมาเฉพาะอันที่จะแก้ ส่ง project_id เป็น null เพื่อถอดลิงก์"""
+    """เปลี่ยนชื่อที่เก็บ — อย่างอื่นไม่มีให้แก้ระดับนี้แล้ว"""
+
+    title: str = Field(min_length=1, max_length=300)
+
+
+class CaseFileUpdate(ApiModel):
+    """แก้ข้อมูลเอกสาร 1 ใบ — ส่งมาเฉพาะฟิลด์ที่จะแก้ ส่ง project_id เป็น null เพื่อถอดจากโปรเจค"""
 
     title: str | None = Field(default=None, min_length=1, max_length=300)
     status: CaseStatus | None = None
+    category: FileCategory | None = None
     doc_number: str | None = Field(default=None, max_length=60)
     agency: str | None = Field(default=None, max_length=160)
     deadline: date | None = None
