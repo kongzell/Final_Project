@@ -323,7 +323,7 @@ export default function App() {
       await api.deleteCaseFile(id, fileId)
       await refreshCases()
     },
-    onManageMembers: (id: string) => setCaseMemberModalId(id),
+    onManageMembers: (id: string) => { setCaseMemberModalId(id); void refreshMembers() },
     onBreakdown: (c: Case, file: Case["files"][number]) => {
       if (!file.projectId) return
       setAiFile({ caseId: c.id, fileId: file.id, filename: file.filename, caseTitle: file.title, projectId: file.projectId })
@@ -513,7 +513,7 @@ export default function App() {
               deleteTask(id)
               if (id === selectedTaskId) setSelectedTaskId(null)
             }}
-            onAddMember={() => setMemberModalOpen(true)}
+            onAddMember={() => { setMemberModalOpen(true); void refreshMembers() }}
             onClearFilters={() => {
               setFilters({ assigneeId: null, priority: null })
               setQuery("")
@@ -552,7 +552,7 @@ export default function App() {
           project={project}
           members={projectMembers}
           onOpenTaskRef={(ref) => setQuery(ref)}
-          onAddMember={() => setMemberModalOpen(true)}
+          onAddMember={() => { setMemberModalOpen(true); void refreshMembers() }}
           onOpenProject={() => setDashTab("project")}
           onOpenMember={(id) => {
             setSelectedMemberId(id)

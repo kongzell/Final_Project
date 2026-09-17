@@ -16,7 +16,12 @@ type Props = {
 /** ขอเอกสารจากที่เก็บของทีมอื่น — เห็นแค่ชื่อทีม ไม่เห็นไฟล์ข้างใน ผู้ดูแลฝั่งนั้นเป็นคนเลือกส่ง */
 export function RequestDocumentModal({ fromCaseId, directory, onClose, onSubmit }: Props) {
   const targets = directory.filter((d) => d.id !== fromCaseId)
-  const [toCaseId, setToCaseId] = useState(targets[0]?.id ?? "")
+  const [toCaseId, setToCaseId] = useState("")
+  const [query, setQuery] = useState("")
+  // ทีมในองค์กรมีได้หลายสิบ dropdown ธรรมดาเลื่อนหายาก — พิมพ์ค้นแล้วเลือกจากรายการที่กรองแทน
+  const q = query.trim().toLowerCase()
+  const shown = targets.filter((d) => !q || d.title.toLowerCase().includes(q))
+  const chosen = targets.find((d) => d.id === toCaseId) ?? null
   const [title, setTitle] = useState("")
   const [note, setNote] = useState("")
   const [busy, setBusy] = useState(false)
@@ -58,25 +63,46 @@ export function RequestDocumentModal({ fromCaseId, directory, onClose, onSubmit 
         </header>
 
         <div className="modal-body">
-          <label className="field">
+          <div className="field">
             <span className="field-label">From which team</span>
             {targets.length === 0 ? (
               <span className="field-hint">There is no other document space in the system yet.</span>
             ) : (
-              <select value={toCaseId} onChange={(e) => setToCaseId(e.target.value)}>
-                {targets.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.title} · {d.memberCount} member{d.memberCount === 1 ? "" : "s"}{d.isMember ? " · you are in it" : ""}
-                  </option>
-                ))}
-              </select>
+              <>
+                <input
+                  autoFocus
+                  className="field-input"
+                  placeholder="Type to search teams…"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+                <ul className="team-pick" role="listbox" aria-label="Teams">
+                  {shown.length === 0 && <li className="team-pick-none">No team matches "{query}"</li>}
+                  {shown.map((d) => (
+                    <li key={d.id}>
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={d.id === toCaseId}
+                        className={"team-pick-row" + (d.id === toCaseId ? " is-on" : "")}
+                        onClick={() => setToCaseId(d.id)}
+                      >
+                        <span className="team-pick-name">{d.title}</span>
+                        <span className="team-pick-meta">
+                          {d.memberCount} member{d.memberCount === 1 ? "" : "s"}{d.isMember ? " · you are in it" : ""}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <span className="field-hint">{chosen ? <>Sending to <strong>{chosen.title}</strong></> : "Pick a team from the list"}</span>
+              </>
             )}
-          </label>
+          </div>
 
           <label className="field">
             <span className="field-label">Which document</span>
             <input
-              autoFocus
               className="field-input"
               placeholder="e.g. สัญญาจ้างระบบจองห้อง ฉบับลงนาม"
               value={title}

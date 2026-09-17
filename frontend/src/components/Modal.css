@@ -211,3 +211,6 @@
 .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .btn-primary:disabled:hover { background: var(--accent); }
 .btn-primary:hover { background: var(--accent-hover); }
+
+/* รายชื่อทั้งระบบอาจยาว — เลื่อนในกรอบแทนที่จะดัน modal สูงเกินจอ */
+.member-list-scroll { max-height: 240px; overflow-y: auto; margin-top: 8px; }

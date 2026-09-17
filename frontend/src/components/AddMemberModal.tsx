@@ -39,6 +39,13 @@ export function AddMemberModal({
     return () => document.removeEventListener("keydown", onKey)
   }, [onClose])
 
+  // ค้นจากชื่อ / username / GitHub login / สายงาน — บัญชีทั้งระบบอยู่ในรายการนี้ ไม่ใช่แค่คนในทีม
+  const [query, setQuery] = useState("")
+  const q = query.trim().toLowerCase()
+  const found = available.filter((m) =>
+    !q || [m.name, m.username, m.githubLogin, m.role].some((s) => s?.toLowerCase().includes(q)),
+  )
+
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
       <div
@@ -104,25 +111,38 @@ export function AddMemberModal({
             </ul>
           </section>
 
-          {available.length > 0 && (
-            <section className="modal-section">
-              <h3 className="modal-h3">People in the workspace</h3>
-              <ul className="member-list">
-                {available.map((m) => (
-                  <li key={m.id} className="member-row">
-                    <Avatar member={m} size={30} />
-                    <span className="member-info">
-                      <span className="member-name">{m.name}</span>
-                      <span className="member-role">{m.role}</span>
-                    </span>
-                    <button type="button" className="member-action" onClick={() => onAddExisting(m.id)}>
-                      <IconPlus size={14} /> Add
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
+          <section className="modal-section">
+            <h3 className="modal-h3">Everyone else in the system ({available.length})</h3>
+            {available.length === 0 ? (
+              <p className="modal-empty">Everyone with an account is already in this {noun}</p>
+            ) : (
+              <>
+                <input
+                  className="field-input"
+                  placeholder="Search by name, username or role…"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+                {found.length === 0 && <p className="modal-empty">Nobody matches "{query}"</p>}
+                <ul className="member-list member-list-scroll">
+                  {found.map((m) => (
+                    <li key={m.id} className="member-row">
+                      <Avatar member={m} size={30} />
+                      <span className="member-info">
+                        <span className="member-name">{m.name}</span>
+                        <span className="member-role">
+                          {m.role}{m.username ? ` · @${m.username}` : m.githubLogin ? ` · ${m.githubLogin}` : ""}
+                        </span>
+                      </span>
+                      <button type="button" className="member-action" onClick={() => onAddExisting(m.id)}>
+                        <IconPlus size={14} /> Add
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </section>
 
           {githubRepo && <GithubImport repo={githubRepo} onImported={onImported} />}
 

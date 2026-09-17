@@ -12,6 +12,9 @@ export type Member = {
   color: string
   /** รูปโปรไฟล์จาก GitHub — null สำหรับคนที่เจ้าของสร้างเองด้วยมือ */
   avatarUrl: string | null
+  /** login บน GitHub / ชื่อผู้ใช้ของบัญชีธรรมดา — ไว้ค้นหาคนตอนเพิ่มสมาชิก */
+  githubLogin?: string | null
+  username?: string | null
 }
 
 export type Task = {

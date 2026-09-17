@@ -309,3 +309,36 @@
 .req-status.is-pending { background: var(--accent-soft); color: var(--accent-text); }
 .req-status.is-fulfilled { background: var(--status-complete); color: #fff; }
 .req-status.is-declined { background: var(--warning); color: var(--warning-ink); }
+
+/* เลือกทีมปลายทางแบบพิมพ์ค้น — รายการสั้น เลื่อนได้ */
+.team-pick {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-app);
+}
+.team-pick-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.team-pick-row:hover { background: var(--bg-hover); }
+.team-pick-row.is-on { background: var(--accent-soft); color: var(--accent-text); }
+.team-pick-name { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.team-pick-meta { flex: none; font-size: 11.5px; color: var(--text-faint); }
+.team-pick-row.is-on .team-pick-meta { color: inherit; opacity: 0.8; }
+.team-pick-none { padding: 8px 9px; font-size: 13px; color: var(--text-faint); }
