@@ -1,10 +1,22 @@
 import { useMemo, useState } from "react"
 import type { Filters } from "../App"
 import type { Complexity, Member, PriorityId, Project, StatusId, Task } from "../types"
-import { CATEGORIES, categoryColor, COMPLEXITIES, STATUSES } from "../types"
+import { CATEGORIES, categoryColor, COMPLEXITIES, STATUSES, taskKey } from "../types"
+import type { Blocker } from "./TaskCard"
 import { TaskCard } from "./TaskCard"
 import { IconPlus } from "./Icons"
 import "./Board.css"
+
+/** งานที่ใบนี้รออยู่ พร้อมบอกว่าเสร็จหรือยัง
+ *
+ * คิดที่นี่เพราะ Board เห็นงานทั้งโปรเจค ส่วน TaskCard เห็นแค่การ์ดของตัวเอง
+ * งานที่ถูกลบไปแล้วจะหาไม่เจอ ถือว่าไม่ต้องรอ — ดีกว่าค้างเป็น "รอ" ตลอดไป
+ */
+const blockersOf = (task: Task, project: Project): Blocker[] =>
+  task.dependsOn
+    .map((id) => project.tasks.find((t) => t.id === id))
+    .filter((t) => t !== undefined)
+    .map((t) => ({ key: taskKey(project.taskPrefix, t.number), done: t.status === "complete" }))
 
 type Props = {
   project: Project
@@ -120,6 +132,7 @@ export function Board({
               task={t}
               members={members}
               subtasks={project.tasks.filter((s) => s.parentId === t.id)}
+              blockers={blockersOf(t, project)}
               taskPrefix={project.taskPrefix}
               githubRepo={project.githubRepo}
               canManage={canManage}

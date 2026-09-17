@@ -93,9 +93,17 @@ async def update_task(
         )
         data["position"] = (last or 0.0) + 1000.0
 
+    # แก้กำหนดส่งใหม่ หรือเปิดงานที่ปิดแล้วขึ้นมาทำต่อ ให้แจ้งเตือน "เลยกำหนดส่ง" ได้อีกรอบ
+    # ถ้าไม่ล้างไว้ งานที่เคยเลยกำหนดแล้วโดนแจ้งไปแล้วจะไม่มีทางแจ้งซ้ำอีกเลยแม้เลยกำหนดใหม่จริง ๆ
+    old_status = task.status
+    if "due_date" in data and data["due_date"] != task.due_date:
+        task.overdue_notified_at = None
+
     # ต้องเรียกก่อนลูป setattr ข้างล่าง เพราะตัวช่วยเทียบสถานะเก่ากับใหม่
     if "status" in data:
         apply_status_change(task, data["status"])
+        if old_status == "complete" and data["status"] != "complete":
+            task.overdue_notified_at = None
 
     for field, value in data.items():
         setattr(task, field, value)

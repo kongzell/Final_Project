@@ -2,6 +2,17 @@ from app.models import Project, Task
 from app.schemas import ProjectOut, TaskOut
 
 
+def _actual_hours(task: Task) -> float | None:
+    """เวลาที่ใช้จริง (ชม.) จาก started_at ถึง completed_at — None ถ้ายังไม่เริ่มหรือยังไม่เสร็จ
+
+    ต่างจาก estimate_hours ตรงที่ตัวนี้คำนวณจากเวลาจริงที่ผ่านไป ไม่ใช่ตัวเลขที่ AI เดาไว้ล่วงหน้า
+    """
+    if task.started_at is None or task.completed_at is None:
+        return None
+    seconds = (task.completed_at - task.started_at).total_seconds()
+    return round(max(seconds, 0) / 3600, 1)
+
+
 def task_out(task: Task) -> TaskOut:
     return TaskOut(
         id=task.id,
@@ -21,6 +32,9 @@ def task_out(task: Task) -> TaskOut:
         needs_rework=task.needs_rework,
         rework_count=task.rework_count,
         completed_at=task.completed_at,
+        started_at=task.started_at,
+        actual_hours=_actual_hours(task),
+        depends_on=task.depends_on or [],
         branch=task.branch,
         review_url=task.review_url,
     )

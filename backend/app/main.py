@@ -1,4 +1,6 @@
+import asyncio
 import logging
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -8,6 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from app import overdue
 from app.config import get_settings
 from app.routers import ai, auth, github, members, projects, system, tasks
 
@@ -19,12 +22,24 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s | %(messa
 # httpx log ทุกครั้งที่เรียก GitHub/Gemini ที่ระดับ INFO — รกและไม่ได้ใช้
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # เช็คงานเลยกำหนดส่งเป็นระยะอยู่เบื้องหลัง ตลอดอายุของแอป
+    task = asyncio.create_task(overdue.run_forever())
+    try:
+        yield
+    finally:
+        task.cancel()
+
+
 # docs วางไว้ใต้ /api เพื่อให้ผ่าน proxy ของ vite (dev) และ nginx (prod) ได้เหมือน endpoint อื่น
 app = FastAPI(
     title="3work api",
     docs_url="/api/docs",
     redoc_url=None,
     openapi_url="/api/openapi.json",
+    lifespan=lifespan,
 )
 
 app.add_middleware(

@@ -89,6 +89,19 @@ def task_created(project: Project, task: Task, author: Member) -> tuple[str, str
     return subject, "\n".join(lines) + _footer(project)
 
 
+def task_overdue(project: Project, task: Task) -> tuple[str, str]:
+    """เลยกำหนดส่งแล้วแต่ยังไม่ปิดงาน — แจ้งคนรับงานกับเจ้าของโปรเจค"""
+    key = _task_key(project, task)
+    subject = f"[{project.name}] งานเลยกำหนดส่ง {key} — {task.title}"
+
+    body = "\n".join([
+        f"งาน {key} เลยวันที่กำหนดส่งแล้ว (กำหนดส่ง: {task.due_date.isoformat()})",
+        "",
+        f"  {key}  {task.title}",
+    ])
+    return subject, body + _footer(project)
+
+
 def task_claimed(project: Project, task: Task, who: Member) -> tuple[str, str]:
     key = _task_key(project, task)
     subject = f"[{project.name}] {who.name} รับงาน {key} แล้ว"

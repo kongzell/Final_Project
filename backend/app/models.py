@@ -17,6 +17,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Table,
@@ -176,6 +177,18 @@ class Task(Base):
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    #: เวลาที่งานถูกดึงออกจาก "รอเริ่ม" ครั้งแรก — ตั้งครั้งเดียวไม่เปลี่ยนอีก
+    #: แม้จะถูกตีกลับไปแก้กี่รอบก็ตาม เพราะถือว่างานเริ่มทำมาตั้งแต่ตอนนั้น
+    #: ใช้คู่กับ completed_at คำนวณเวลาที่ใช้จริง แยกจาก estimate_hours ที่เป็นแค่การเดา
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    #: เวลาที่ส่งอีเมลแจ้งเตือน "เลยกำหนดส่ง" ไปแล้ว — กันไม่ให้ยิงซ้ำทุกครั้งที่เช็ค
+    #: ล้างกลับเป็น NULL เมื่อแก้ due_date ใหม่หรือเปิดงานที่ปิดแล้วขึ้นมาทำต่อ
+    #: เพื่อให้แจ้งเตือนรอบใหม่ได้ถ้าเลยกำหนดอีกครั้ง
+    overdue_notified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     #: branch ล่าสุดที่มี commit อ้างถึงงานนี้ ใช้ลิงก์ไปดู diff บน GitHub
     branch: Mapped[str | None] = mapped_column(String(255), nullable=True)
     #: ลิงก์ PR ล่าสุดที่อ้างถึงงานนี้ — ดีกว่า branch เพราะเห็นรีวิวด้วย
@@ -183,6 +196,10 @@ class Task(Base):
     #: ทักษะ/เครื่องมือที่ต้องใช้ เก็บเป็น JSON array
     #: ปล่อยให้เป็น NULL ได้ เพราะ sqlite เพิ่มคอลัมน์ NOT NULL ที่ไม่มี default ไม่ได้
     tags: Mapped[list[str] | None] = mapped_column(JSON, nullable=True, default=list)
+    #: id ของงานที่ต้องเสร็จก่อนงานใบนี้จะเริ่มได้ — AI เป็นคนเสนอตอนแตกงาน
+    #: เก็บเป็น JSON array เหมือน tags แทนที่จะทำตารางเชื่อม เพราะใช้แค่แสดงผล
+    #: ไม่ได้ query ย้อนกลับว่า "ใครรอใบนี้อยู่" และระบบไม่ได้ล็อกไม่ให้เริ่มงานจริง ๆ
+    depends_on: Mapped[list[str] | None] = mapped_column(JSON, nullable=True, default=list)
     estimate_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
     complexity: Mapped[str | None] = mapped_column(String(10), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
@@ -203,6 +220,10 @@ def apply_status_change(task: Task, new_status: str) -> None:
     """
     if new_status == task.status:
         return
+
+    # จับเวลาที่ใช้จริงตั้งแต่ครั้งแรกที่งานขยับออกจาก "รอเริ่ม" — ไม่แตะอีกแม้ถูกตีกลับ
+    if task.started_at is None and new_status != "todo":
+        task.started_at = _now()
 
     # ตีกลับจากรอตรวจ = ต้องแก้ · ส่งตรวจใหม่หรือปิดงาน = เลิกทำเครื่องหมาย
     # ถ้าถูกดึงกลับไปรอเริ่มยังคงธงไว้ เพราะงานก็ยังไม่ผ่านการตรวจอยู่ดี
@@ -228,6 +249,9 @@ class TaskComment(Base):
     """
 
     __tablename__ = "task_comments"
+    #: อ่านคอมเมนต์ทีละการ์ดเสมอ เรียงตามเวลา — ต้องประกาศไว้ตรงนี้ด้วย ไม่ใช่แค่ใน migration
+    #: ไม่งั้น autogenerate จะเห็นว่าโมเดลไม่มี index นี้ แล้วสร้าง migration ลบทิ้งให้เงียบ ๆ
+    __table_args__ = (Index("ix_task_comments_task_created", "task_id", "created_at"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     task_id: Mapped[str] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"))

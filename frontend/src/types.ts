@@ -38,6 +38,13 @@ export type Task = {
   reworkCount: number
   /** เวลาที่ปิดงาน (ISO) — null ถ้ายังไม่เสร็จ */
   completedAt: string | null
+  /** เวลาที่ดึงงานออกจาก "รอเริ่ม" ครั้งแรก (ISO) — null ถ้ายังไม่มีใครเริ่ม */
+  startedAt: string | null
+  /** เวลาที่ใช้จริง (ชม.) จาก startedAt ถึง completedAt — null ถ้ายังไม่เสร็จ
+   *  ต่างจาก estimateHours ที่เป็นแค่ตัวเลขที่ AI เดาไว้ล่วงหน้า ไม่ใช่เวลาที่ใช้จริง */
+  actualHours: number | null
+  /** id ของงานที่ต้องเสร็จก่อนใบนี้ถึงจะเริ่มได้ — ว่าง = เริ่มได้เลย */
+  dependsOn: string[]
   /** branch ล่าสุดที่ commit ถึงงานนี้ */
   branch: string | null
   /** ลิงก์ PR ล่าสุดที่อ้างถึงงานนี้ */
@@ -147,6 +154,26 @@ export const taskPoints = (t: Task): number =>
 /** งานที่ยังไม่เสร็จของคนคนหนึ่ง — ภาระที่ยังแบกอยู่จริง */
 export const openTasksOf = (tasks: Task[], memberId: string): Task[] =>
   tasks.filter((t) => t.assigneeIds.includes(memberId) && t.status !== "complete")
+
+/** แปลงชั่วโมงที่ใช้จริงเป็นจำนวนวันเต็ม — ปัดขึ้นเสมอ (เศษของวันนับเป็น 1 วัน) */
+export function formatDuration(hours: number): string {
+  const days = Math.max(1, Math.ceil(hours / 24))
+  return `${days} วัน`
+}
+
+/** วันที่วันนี้ตามเวลาเครื่องผู้ใช้ แบบ YYYY-MM-DD — เทียบกับ dueDate ได้ตรง ๆ
+ *  ห้ามใช้ toISOString() เพราะแปลงเป็น UTC ก่อน อาจได้วันที่ผิดตอนใกล้เที่ยงคืน */
+export function todayIso(): string {
+  const d = new Date()
+  const mm = String(d.getMonth() + 1).padStart(2, "0")
+  const dd = String(d.getDate()).padStart(2, "0")
+  return `${d.getFullYear()}-${mm}-${dd}`
+}
+
+/** งานเลยกำหนดส่งแล้วหรือยัง — ปิดงานแล้วไม่นับว่าเลยกำหนดอีกต่อไป */
+export function isOverdue(task: Task): boolean {
+  return task.dueDate !== null && task.status !== "complete" && task.dueDate < todayIso()
+}
 
 export const categoryColor = (name: string | null): string =>
   CATEGORIES.find((c) => c.id === name)?.color ?? "var(--text-faint)"

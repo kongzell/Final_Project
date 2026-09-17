@@ -153,8 +153,11 @@ export default function App() {
         title: parentTitle,
         estimateHours: totalHours || null,
       })
+      // AI อ้างถึงงานที่ต้องเสร็จก่อนด้วย "ตำแหน่งในลิสต์" เพราะตอนนั้นยังไม่มี id
+      // สร้างไล่ตามลำดับแล้วเก็บ id ไว้ ตัวที่อ้างถึงจึงถูกสร้างไปแล้วเสมอ (อ้างถอยหลังอย่างเดียว)
+      const created: string[] = []
       for (const s of picked) {
-        await api.createTask(project.id, {
+        const task = await api.createTask(project.id, {
           title: s.title,
           description: s.description || null,
           parentId: parent.id,
@@ -162,7 +165,9 @@ export default function App() {
           tags: s.tags,
           estimateHours: s.estimateHours,
           complexity: s.complexity,
+          dependsOn: s.dependsOn.map((i) => created[i]).filter(Boolean),
         })
+        created.push(task.id)
       }
       setSelectedTaskId(parent.id)
     })

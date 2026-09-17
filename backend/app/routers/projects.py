@@ -228,6 +228,18 @@ async def create_task(
     """เจ้าของหรือ admin เพิ่มงานได้ — สมาชิกรับงานและอัปเดตสถานะได้อย่างเดียว"""
     project = await _get_managed_project(session, project_id, me)
 
+    # เก็บเฉพาะงานที่มีจริงและอยู่โปรเจคเดียวกัน — กัน id มั่วหรือข้ามโปรเจคหลุดลง database
+    # ไม่ throw ถ้ามีตัวไม่ผ่าน เพราะฝั่งหน้าเว็บอาจส่ง id ของงานที่ผู้ใช้เพิ่งเอาออกจากรายการมาด้วย
+    depends_on: list[str] = []
+    if payload.depends_on:
+        rows = await session.scalars(
+            select(Task.id).where(
+                Task.project_id == project_id, Task.id.in_(set(payload.depends_on))
+            )
+        )
+        valid = set(rows)
+        depends_on = [t for t in payload.depends_on if t in valid]
+
     # วางต่อท้ายคอลัมน์ที่ระบุ
     last = await session.scalar(
         select(func.max(Task.position)).where(
@@ -254,6 +266,7 @@ async def create_task(
             tags=payload.tags,
             estimate_hours=payload.estimate_hours,
             complexity=payload.complexity,
+            depends_on=depends_on,
         )
         session.add(task)
         try:

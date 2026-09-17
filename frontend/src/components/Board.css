@@ -309,6 +309,8 @@
 }
 
 .card-est { font-family: var(--mono); font-size: 11.5px; color: var(--text-faint); }
+/* เวลาที่ใช้จริง — สีเข้มกว่า est เพื่อให้แยกออกว่านี่คือของจริง ไม่ใช่ค่าที่ AI เดา */
+.card-actual { font-family: var(--mono); font-size: 11.5px; color: var(--accent-text); font-weight: 600; }
 .card-cx { font-size: 11.5px; font-weight: 600; }
 .card-empty { font-size: 12.5px; color: var(--text-faint); }
 
@@ -525,6 +527,59 @@
   border-radius: 999px;
   background: var(--danger);
   color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* ---------- งานที่ต้องรองานอื่นก่อน ---------- */
+/* ใช้แบบเส้นขอบไม่ถมสี เพราะ "รอ" ไม่ใช่เรื่องผิดปกติเหมือนตีกลับหรือเลยกำหนด
+   แค่บอกลำดับเฉย ๆ ถ้าถมสีจะแย่งสายตาไปจากป้ายที่เป็นปัญหาจริง */
+.card-waiting {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  padding: 2px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--text-dim);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* ตัวขวางเสร็จหมดแล้ว = หยิบไปทำต่อได้เลย ใช้สีเดียวกับคอลัมน์ "เสร็จแล้ว" */
+.card-ready {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  padding: 2px 8px;
+  border: 1px solid var(--status-complete);
+  border-radius: 999px;
+  color: var(--status-complete);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* ---------- งานที่เลยกำหนดส่ง ---------- */
+/* วางไว้หลัง is-rework เพื่อให้ทับกัน — เกินกำหนดถือว่าเร่งด่วนกว่า จึงเห็นสีส้มก่อน */
+.card.is-overdue {
+  border-color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 10%, var(--bg-card));
+  box-shadow: inset 3px 0 0 var(--warning);
+}
+
+/* หมึกมาจาก token ไม่ใช่ขาวตายตัวเหมือนป้ายสีแดง เพราะสีส้มสว่างกว่ามาก
+   ตัวหนังสือขาวบนส้มได้ contrast แค่ ~2:1 อ่านไม่ออก ธีมมืดจึงใช้หมึกเข้มแทน */
+.card-overdue {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--warning);
+  color: var(--warning-ink);
   font-size: 10.5px;
   font-weight: 700;
   letter-spacing: 0.02em;

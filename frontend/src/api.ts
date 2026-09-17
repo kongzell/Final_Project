@@ -12,6 +12,8 @@ export type SubtaskSuggestion = {
   estimateHours: number
   complexity: "low" | "medium" | "high"
   reason: string
+  /** ตำแหน่งของงานอื่นในชุดเดียวกันที่ต้องเสร็จก่อน (อ้างถอยหลังเสมอ) */
+  dependsOn: number[]
 }
 
 export type BreakdownResult = {
@@ -68,6 +70,9 @@ type ApiTask = {
   needsRework: boolean
   reworkCount: number
   completedAt: string | null
+  startedAt: string | null
+  actualHours: number | null
+  dependsOn: string[]
   branch: string | null
   reviewUrl: string | null
   parentId: string | null
@@ -100,6 +105,9 @@ const toTask = (t: ApiTask): Task => ({
   needsRework: t.needsRework,
   reworkCount: t.reworkCount,
   completedAt: t.completedAt,
+  startedAt: t.startedAt,
+  actualHours: t.actualHours,
+  dependsOn: t.dependsOn ?? [],
   branch: t.branch,
   reviewUrl: t.reviewUrl,
   parentId: t.parentId,
@@ -191,6 +199,8 @@ export type NewTask = {
   tags?: string[]
   estimateHours?: number | null
   complexity?: "low" | "medium" | "high" | null
+  /** id ของงานที่ต้องเสร็จก่อน — ฝั่ง API ตัดตัวที่ไม่ได้อยู่ในโปรเจคเดียวกันทิ้ง */
+  dependsOn?: string[]
 }
 
 export async function createTask(projectId: string, task: NewTask): Promise<Task> {

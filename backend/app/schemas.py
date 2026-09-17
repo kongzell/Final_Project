@@ -62,6 +62,8 @@ class TaskCreate(ApiModel):
     tags: list[str] = Field(default_factory=list)
     estimate_hours: float | None = None
     complexity: Complexity | None = None
+    #: id ของงานที่ต้องเสร็จก่อน — ตัวที่ไม่ได้อยู่ในโปรเจคเดียวกันจะถูกตัดทิ้ง
+    depends_on: list[str] = Field(default_factory=list)
 
 
 class TaskUpdate(ApiModel):
@@ -102,6 +104,13 @@ class TaskOut(ApiModel):
     rework_count: int = 0
     #: เวลาที่ปิดงาน ใช้เทียบกับ due_date ว่าส่งทันไหม
     completed_at: datetime | None = None
+    #: เวลาที่งานถูกดึงออกจาก "รอเริ่ม" ครั้งแรก — null แปลว่ายังไม่มีใครเริ่มทำ
+    started_at: datetime | None = None
+    #: เวลาที่ใช้จริง (ชั่วโมง) นับจาก started_at ถึง completed_at — null ถ้ายังไม่เสร็จ
+    #: แยกจาก estimate_hours ซึ่งเป็นแค่ตัวเลขที่ AI เดาไว้ล่วงหน้า ไม่ใช่เวลาที่ใช้จริง
+    actual_hours: float | None = None
+    #: งานที่ต้องเสร็จก่อนใบนี้ถึงจะเริ่มได้ — ว่าง = เริ่มได้เลย ไม่ต้องรอใคร
+    depends_on: list[str] = []
     #: branch ล่าสุดที่ commit ถึงงานนี้ (ไม่รวม branch หลัก)
     branch: str | None = None
     #: ลิงก์ PR ล่าสุดที่อ้างถึงงานนี้
@@ -169,6 +178,9 @@ class SubtaskSuggestion(ApiModel):
     estimate_hours: float
     complexity: Complexity
     reason: str = ""
+    #: ตำแหน่งของงานอื่นในลิสต์เดียวกันที่ต้องเสร็จก่อน (อ้างถอยหลังเท่านั้น)
+    #: ใช้ index แทน id เพราะตอน AI ตอบกลับมา งานยังไม่ถูกสร้างจึงยังไม่มี id
+    depends_on: list[int] = Field(default_factory=list)
 
 
 class BreakdownResult(ApiModel):

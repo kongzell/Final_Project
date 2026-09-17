@@ -1,7 +1,8 @@
 import { useState } from "react"
 import type { Member, PriorityId, StatusId, Task } from "../types"
 import {
-  CATEGORIES, categoryColor, codeLink, COMPLEXITIES, PRIORITIES, STATUSES, taskKey,
+  CATEGORIES, categoryColor, codeLink, COMPLEXITIES, formatDuration, isOverdue, PRIORITIES,
+  STATUSES, taskKey,
 } from "../types"
 import { Avatar } from "./Avatar"
 import { TaskComments } from "./TaskComments"
@@ -11,12 +12,17 @@ import {
   IconTrash, IconUser,
 } from "./Icons"
 
+/** งานที่การ์ดใบนี้รออยู่ — Board คำนวณมาให้เพราะมันเห็นงานทั้งโปรเจค */
+export type Blocker = { key: string; done: boolean }
+
 type Props = {
   task: Task
   /** พนักงานทั้งหมดในโปรเจคนี้ */
   members: Member[]
   /** งานย่อยของการ์ดใบนี้ (ถ้ามี) */
   subtasks: Task[]
+  /** งานที่ต้องเสร็จก่อนใบนี้จะเริ่มได้ — ว่าง = ไม่ต้องรอใคร */
+  blockers: Blocker[]
   /** รหัสย่อของโปรเจค ใช้ประกอบเป็นรหัสงาน */
   taskPrefix: string
   /** repo ของโปรเจค ใช้ประกอบลิงก์ compare ตอนมีแค่ชื่อ branch */
@@ -47,7 +53,7 @@ const fmtDue = (iso: string) =>
   new Date(iso + "T00:00:00").toLocaleDateString("th-TH", { day: "numeric", month: "short" })
 
 export function TaskCard({
-  task, members, subtasks, taskPrefix, githubRepo, canManage, currentMemberId, expanded,
+  task, members, subtasks, blockers, taskPrefix, githubRepo, canManage, currentMemberId, expanded,
   canClaim, onClaim, onOpen,
   onToggleSubtaskAssignee, onSetSubtaskStatus, onChangeStatus, onToggleAssignee,
   onSetPriority, onSetDue, onSetCategory, onSetDescription, onDelete, onAddMember,
@@ -79,6 +85,13 @@ export function TaskCard({
   const sortedMembers = [...members].sort((a, b) => Number(matches(b)) - Number(matches(a)))
 
   const code = codeLink(task, githubRepo)
+  const overdue = isOverdue(task)
+
+  // งานที่ยังไม่เสร็จและใบนี้รออยู่ — ปิดงานแล้วไม่ต้องบอกอะไรอีก
+  const waitingFor = task.status === "complete" ? [] : blockers.filter((b) => !b.done)
+  // เคยรอแต่ตัวขวางเสร็จหมดแล้ว = เพิ่งปลดล็อก เป็นจังหวะที่ควรหยิบไปทำต่อ
+  const justUnblocked =
+    task.status === "todo" && blockers.length > 0 && waitingFor.length === 0
 
   //: สมาชิกส่งงานได้ถึงแค่ "รอตรวจ" — คนตรวจรับคือเจ้าของโปรเจค
   const movable = canManage ? STATUSES : STATUSES.filter((s) => s.id !== "complete")
@@ -89,9 +102,29 @@ export function TaskCard({
         `card p-${task.priority}` +
         (task.status === "complete" ? " is-done" : "") +
         (task.needsRework ? " is-rework" : "") +
+        (overdue ? " is-overdue" : "") +
         (expanded ? " is-open" : "")
       }
     >
+      {waitingFor.length > 0 && (
+        <span
+          className="card-waiting"
+          title={`Waiting for ${waitingFor.map((b) => b.key).join(", ")} to be finished first`}
+        >
+          รอ {waitingFor[0].key}
+          {waitingFor.length > 1 && ` +${waitingFor.length - 1}`}
+        </span>
+      )}
+      {justUnblocked && (
+        <span className="card-ready" title="Everything this task was waiting for is done">
+          พร้อมเริ่ม
+        </span>
+      )}
+      {overdue && (
+        <span className="card-overdue" title="Past its due date and not marked complete yet">
+          Overdue
+        </span>
+      )}
       {task.needsRework && (
         <span className="card-rework" title="Sent back from review — fix it before resubmitting">
           Needs rework
@@ -159,7 +192,8 @@ export function TaskCard({
         </button>
       )}
 
-      {(task.category || task.tags.length > 0 || task.estimateHours !== null || complexity) && (
+      {(task.category || task.tags.length > 0 || task.estimateHours !== null
+        || task.actualHours !== null || complexity) && (
         <div className="card-ai">
           {task.category && (
             <span className="card-cat" style={{ color: categoryColor(task.category) }}>
@@ -169,7 +203,16 @@ export function TaskCard({
           {task.tags.map((t) => (
             <span key={t} className="card-tag">{t}</span>
           ))}
-          {task.estimateHours !== null && <span className="card-est">{task.estimateHours} h</span>}
+          {task.estimateHours !== null && (
+            <span className="card-est" title="เวลาที่ AI ประเมินไว้ล่วงหน้า">
+              est {formatDuration(task.estimateHours)}
+            </span>
+          )}
+          {task.actualHours !== null && (
+            <span className="card-actual" title="เวลาที่ใช้จริงตั้งแต่เริ่มจนปิดงาน">
+              จริง {formatDuration(task.actualHours)}
+            </span>
+          )}
           {complexity && (
             <span className="card-cx" style={{ color: complexity.color }}>{complexity.label}</span>
           )}
@@ -446,7 +489,7 @@ export function TaskCard({
                           )}
                           {cx && <span style={{ color: cx.color }}>{cx.label}</span>}
                           {s.estimateHours !== null && (
-                            <span className="cd-sub-hrs">{s.estimateHours} h</span>
+                            <span className="cd-sub-hrs">{formatDuration(s.estimateHours)}</span>
                           )}
 
                           <Menu

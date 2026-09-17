@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import type { BreakdownResult, SubtaskSuggestion } from "../api"
 import { breakdownTask } from "../api"
-import { CATEGORIES, categoryColor, COMPLEXITIES } from "../types"
+import { CATEGORIES, categoryColor, COMPLEXITIES, formatDuration } from "../types"
 import {
   IconCheck, IconChevronDown, IconClose, IconPencil, IconPlus, IconSparkle,
 } from "./Icons"
@@ -76,7 +76,25 @@ export function AiBreakdownModal({ projectName, onClose, onAdd }: Props) {
           },
     )
 
-  const chosen = result ? result.subtasks.filter((_, i) => picked.has(i)) : []
+  /** งานที่ติ๊กไว้ พร้อมแปลง dependsOn ให้ชี้ตำแหน่งใหม่ในลิสต์ที่กรองแล้ว
+   *
+   *  AI อ้างถึงงานอื่นด้วยตำแหน่งในลิสต์เต็ม พอผู้ใช้ติ๊กออกบางใบ ตำแหน่งจะเลื่อน
+   *  ถ้าไม่แปลงใหม่ งานจะไปผูกกับใบที่ไม่เกี่ยวข้องกันเลย ส่วนที่ชี้ไปยังใบที่ถูกติ๊กออก
+   *  ถือว่าไม่ต้องรอแล้ว จึงตัดทิ้ง
+   */
+  const chosen = (() => {
+    if (result === null) return []
+    const slot = new Map<number, number>()
+    result.subtasks.forEach((_, i) => {
+      if (picked.has(i)) slot.set(i, slot.size)
+    })
+    return result.subtasks
+      .filter((_, i) => picked.has(i))
+      .map((s) => ({
+        ...s,
+        dependsOn: s.dependsOn.map((d) => slot.get(d)).filter((d) => d !== undefined),
+      }))
+  })()
   const totalHours = chosen.reduce((sum, s) => sum + s.estimateHours, 0)
 
   return (
@@ -190,7 +208,7 @@ export function AiBreakdownModal({ projectName, onClose, onAdd }: Props) {
                         {s.tags.map((t) => (
                           <span key={t} className="ai-tag">{t}</span>
                         ))}
-                        <span className="ai-est">{s.estimateHours} h</span>
+                        <span className="ai-est">{formatDuration(s.estimateHours)}</span>
                         <span
                           className="ai-cx"
                           style={{ color: COMPLEXITIES.find((c) => c.id === s.complexity)?.color }}

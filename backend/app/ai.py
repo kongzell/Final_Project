@@ -35,6 +35,7 @@ RESPONSE_SCHEMA = {
                     "estimateHours": {"type": "number"},
                     "complexity": {"type": "string", "enum": COMPLEXITIES},
                     "reason": {"type": "string"},
+                    "dependsOn": {"type": "array", "items": {"type": "integer"}},
                 },
                 "required": [
                     "title", "description", "category", "tags", "estimateHours", "complexity",
@@ -52,8 +53,15 @@ The request: "{title}"
 
 Break it into subtasks that can actually be picked up and checked off:
 
-1. Every subtask must be something you can tell is finished, e.g. "Build the Add to Cart button",
-   "Write the stock deduction API", "Design the products table" — never something broad
+1. Slice the work VERTICALLY, not by technical layer. Each subtask should be one thin
+   end-to-end capability a user or caller can actually exercise when it is done — it may
+   touch the database, the API and the UI all at once, and that is fine.
+   Good: "Log in with email and password", "Show an error when the password is wrong",
+   "Stay logged in after a refresh".
+   Bad (layer slicing): "Design the users table", "Write the login API", "Build the login form"
+   — those three only become useful together, so nobody can finish or test one on its own.
+   Split by layer ONLY when the work genuinely has no user-facing slice, such as setting up
+   CI, a one-off data migration, or upgrading a library. Never split something broad
    like "do the frontend"
 2. Answer in the SAME LANGUAGE as the request above — Thai request, Thai answer;
    English request, English answer. This applies to summary, title, description and reason.
@@ -71,6 +79,14 @@ Break it into subtasks that can actually be picked up and checked off:
 7. reason explains in one line why you rated the complexity that way
 8. Aim for about {count} subtasks, but adjust to fit the work (at least 3).
    Do not pad a small job; split a large one further. Order them the way they should be done.
+9. dependsOn lists the positions (0-based index in this list) of the subtasks that MUST be
+   finished before this one can start. Only reference positions BEFORE this one.
+   Keep it minimal and real: a subtask depends on another only when starting it early
+   would be wasted work, not merely because it feels later in the plan.
+   Slices that touch different features, screens or endpoints are independent — leave
+   dependsOn empty so the team can work on them in parallel.
+   Aim for most subtasks to have an empty dependsOn; a chain where every task waits for
+   the previous one means the work was sliced by layer, so go back and slice it vertically
 
 summary is one sentence saying what the whole request is."""
 
@@ -79,53 +95,60 @@ MOCK = BreakdownResult(
     mock=True,
     subtasks=[
         SubtaskSuggestion(
-            title="Design the cart and cart_items tables",
+            title="Add a product to the cart and see it there",
             description=(
-                "One cart row per user, one cart_items row per product in it.\n"
-                "Keep unit price on cart_items so old carts do not change when a "
-                "product is repriced.\n"
-                "Done when a cart survives logout and login."
+                "One cart row per user, one cart_items row per product, the POST that "
+                "fills them, and the Add to Cart button that calls it.\n"
+                "Keep unit price on cart_items so old carts do not change when a product "
+                "is repriced.\n"
+                "Done when clicking the button on a product page shows that product in "
+                "the cart after a refresh."
             ),
-            category="Database", tags=["PostgreSQL", "SQLAlchemy"],
-            estimate_hours=2, complexity="medium",
-            reason="The relationship to the products table has to be settled up front",
+            category="Backend", tags=["FastAPI", "PostgreSQL", "React"],
+            estimate_hours=6, complexity="medium",
+            reason="First slice has to settle the cart tables the later slices build on",
+            depends_on=[],
         ),
         SubtaskSuggestion(
-            title="Write the add-to-cart API",
+            title="Change the quantity of an item already in the cart",
             description=(
-                "POST that takes a product id and a quantity.\n"
-                "Adding a product already in the cart raises the quantity instead of "
-                "creating a second row.\n"
-                "Reject quantities above the stock on hand with a 400."
+                "Adding a product that is already in the cart raises its quantity instead "
+                "of creating a second row, and the quantity box in the cart updates it.\n"
+                "Reject quantities above the stock on hand with a 400 and show that "
+                "message next to the item.\n"
+                "Done when the cart never shows the same product twice."
             ),
-            category="Backend", tags=["FastAPI", "REST API"],
-            estimate_hours=3, complexity="medium",
-            reason="Has to handle duplicate items and insufficient stock",
+            category="Backend", tags=["FastAPI", "React", "REST API"],
+            estimate_hours=4, complexity="medium",
+            reason="Duplicate handling and the stock check both live in this one path",
+            depends_on=[0],
         ),
         SubtaskSuggestion(
-            title="Build the Add to Cart button",
+            title="Confirm an order and have stock go down",
             description=(
-                "Button on the product card that calls the add-to-cart API.\n"
-                "Disable it while the request is running so a double click cannot "
-                "add twice.\n"
-                "Update the cart badge in the header on success."
-            ),
-            category="Frontend", tags=["React", "TypeScript"],
-            estimate_hours=1.5, complexity="low",
-            reason="Straightforward UI work",
-        ),
-        SubtaskSuggestion(
-            title="Write the stock deduction API for order confirmation",
-            description=(
-                "On confirm, deduct every item in the cart from stock inside one "
-                "transaction.\n"
-                "If any item is short, roll back the whole order and say which one.\n"
-                "Done when two people confirming the last item at the same time "
-                "leaves stock at zero, never negative."
+                "Confirm button that deducts every item in the cart from stock inside one "
+                "transaction, then empties the cart.\n"
+                "If any item is short, roll the whole order back and say which one.\n"
+                "Done when two people confirming the last item at the same time leaves "
+                "stock at zero, never negative."
             ),
             category="Backend", tags=["FastAPI", "Transaction"],
-            estimate_hours=4, complexity="high",
+            estimate_hours=5, complexity="high",
             reason="Must not let stock go negative under concurrent orders",
+            depends_on=[0],
+        ),
+        SubtaskSuggestion(
+            title="Search products by name on the storefront",
+            description=(
+                "Search box on the product list that filters by name, with the query kept "
+                "in the URL so a search can be shared.\n"
+                "Show an empty state when nothing matches.\n"
+                "Done when a search survives a refresh."
+            ),
+            category="Frontend", tags=["React", "TypeScript"],
+            estimate_hours=3, complexity="low",
+            reason="Self-contained screen work that touches nothing the cart owns",
+            depends_on=[],
         ),
     ],
 )
