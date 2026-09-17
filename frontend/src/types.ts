@@ -67,6 +67,72 @@ export type Project = {
   memberIds: string[]
 }
 
+// ---------- Documents ----------
+
+export type CaseStatus = "received" | "in_progress" | "delivered" | "closed"
+export type FileCategory = "tor" | "contract" | "amendment" | "minutes" | "acceptance" | "other"
+
+/** เอกสาร 1 ฉบับในเรื่อง — metadata เท่านั้น ตัวไฟล์ดึงผ่าน caseFileUrl() */
+export type CaseFile = {
+  id: string
+  filename: string
+  contentType: string
+  size: number
+  category: FileCategory
+  version: number
+  /** ไฟล์ฉบับก่อนที่ฉบับนี้มาแทน — null ถ้าเป็นฉบับแรก */
+  replacesId: string | null
+  uploadedBy: string | null
+  uploadedAt: string
+}
+
+/** "เรื่อง" ในหน้า Documents — แฟ้มที่รวมเอกสารของงานเดียวกัน มีสมาชิกของตัวเอง */
+export type Case = {
+  id: string
+  title: string
+  status: CaseStatus
+  docNumber: string | null
+  agency: string | null
+  deadline: string | null
+  ownerId: string | null
+  /** โปรเจคที่ผูก (1:1) — null = ยังไม่ผูก */
+  projectId: string | null
+  memberIds: string[]
+  adminIds: string[]
+  files: CaseFile[]
+  createdAt: string
+}
+
+export const CASE_STATUSES: { id: CaseStatus; label: string; color: string }[] = [
+  { id: "received", label: "Received", color: "var(--status-todo)" },
+  { id: "in_progress", label: "In progress", color: "var(--status-progress)" },
+  { id: "delivered", label: "Delivered", color: "var(--status-review)" },
+  { id: "closed", label: "Closed", color: "var(--status-complete)" },
+]
+
+export const FILE_CATEGORIES: { id: FileCategory; label: string }[] = [
+  { id: "tor", label: "TOR" },
+  { id: "contract", label: "Contract" },
+  { id: "amendment", label: "Amendment" },
+  { id: "minutes", label: "Minutes" },
+  { id: "acceptance", label: "Acceptance" },
+  { id: "other", label: "Other" },
+]
+
+/** ไฟล์ฉบับล่าสุดของแต่ละสาย — ฉบับที่ถูกแทนที่แล้วเป็นแค่ประวัติ ไม่นับเป็นเอกสารแยก
+ *  ใช้ตัวเดียวกันทั้ง sidebar การ์ด และแผงรายละเอียด ตัวเลขจะได้ตรงกันทุกที่ */
+export const currentFiles = (c: Case): CaseFile[] => {
+  const replaced = new Set(c.files.map((f) => f.replacesId).filter(Boolean))
+  return c.files.filter((f) => !replaced.has(f.id))
+}
+
+/** ขนาดไฟล์อ่านง่าย — เอกสารส่วนใหญ่อยู่หลัก KB ถึงไม่กี่ MB */
+export function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
 /** รหัสงานที่เอาไปพิมพ์ใน commit ได้ เช่น KST-001 */
 export const taskKey = (prefix: string, number: number) =>
   `${prefix}-${String(number).padStart(3, "0")}`

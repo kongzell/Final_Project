@@ -1,12 +1,8 @@
-from app.models import Project, Task
-from app.schemas import ProjectOut, TaskOut
+from app.models import Case, CaseFile, Project, Task
+from app.schemas import CaseFileOut, CaseOut, ProjectOut, TaskOut
 
 
 def _actual_hours(task: Task) -> float | None:
-    """เวลาที่ใช้จริง (ชม.) จาก started_at ถึง completed_at — None ถ้ายังไม่เริ่มหรือยังไม่เสร็จ
-
-    ต่างจาก estimate_hours ตรงที่ตัวนี้คำนวณจากเวลาจริงที่ผ่านไป ไม่ใช่ตัวเลขที่ AI เดาไว้ล่วงหน้า
-    """
     if task.started_at is None or task.completed_at is None:
         return None
     seconds = (task.completed_at - task.started_at).total_seconds()
@@ -37,6 +33,38 @@ def task_out(task: Task) -> TaskOut:
         depends_on=task.depends_on or [],
         branch=task.branch,
         review_url=task.review_url,
+    )
+
+
+def file_out(f: CaseFile) -> CaseFileOut:
+    """เฉพาะ metadata — ตัวไฟล์ (data) ไม่ออกทางนี้เด็ดขาด ไม่งั้นรายการเรื่องหนักหลาย MB"""
+    return CaseFileOut(
+        id=f.id,
+        filename=f.filename,
+        content_type=f.content_type,
+        size=f.size,
+        category=f.category,
+        version=f.version,
+        replaces_id=f.replaces_id,
+        uploaded_by=f.uploaded_by,
+        uploaded_at=f.uploaded_at,
+    )
+
+
+def case_out(case: Case) -> CaseOut:
+    return CaseOut(
+        id=case.id,
+        title=case.title,
+        status=case.status,
+        doc_number=case.doc_number,
+        agency=case.agency,
+        deadline=case.deadline,
+        owner_id=case.owner_id,
+        project_id=case.project_id,
+        member_ids=[m.id for m in case.members],
+        admin_ids=sorted(case.admin_ids),
+        files=[file_out(f) for f in case.files],
+        created_at=case.created_at,
     )
 
 

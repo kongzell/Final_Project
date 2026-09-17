@@ -1,10 +1,10 @@
 import type { Filters } from "../App"
-import type { Member, Project } from "../types"
-import { PRIORITIES } from "../types"
+import type { Case, Member, Project } from "../types"
+import { currentFiles, PRIORITIES } from "../types"
 import { Avatar } from "./Avatar"
 import { Menu, MenuItem, MenuLabel } from "./Menu"
 import {
-  IconCheck, IconChevronLeft, IconFilter, IconPlus, IconStar, IconTaskList, IconUsers,
+  IconCheck, IconChevronLeft, IconFilter, IconFolder, IconPlus, IconStar, IconTaskList, IconUsers,
 } from "./Icons"
 import "./Sidebar.css"
 
@@ -20,17 +20,42 @@ type Props = {
   onSelectProject: (id: string) => void
   onOpenAddProject: () => void
   onCollapse: () => void
+  /** หน้า Documents — เรื่องที่ฉันเป็นสมาชิก */
+  cases: Case[]
+  /** เรื่องที่เปิดอยู่ (null = ไม่ได้อยู่หน้า Documents หรือยังไม่เลือก) */
+  activeCaseId: string | null
+  /** true เมื่ออยู่หน้า Documents — ใช้ไฮไลต์หัวข้อ แม้ยังไม่ได้เลือกเรื่อง */
+  documentsOpen: boolean
+  onOpenDocuments: () => void
+  onSelectCase: (id: string) => void
+  onOpenAddDocument: () => void
 }
 
 export function Sidebar({
   projects, activeProjectId, starredIds, currentMemberId, members, filters, onChangeFilters,
   onSelectProject, onOpenAddProject, onCollapse,
+  cases, activeCaseId, documentsOpen, onOpenDocuments, onSelectCase, onOpenAddDocument,
 }: Props) {
   const filterOn = filters.assigneeId !== null || filters.priority !== null
 
   // แยกโปรเจคที่เราสร้างเอง ออกจากที่ถูกเชิญเข้าไป — สิทธิ์ต่างกันคนละแบบ
   const owned = projects.filter((p) => p.ownerId === currentMemberId)
   const shared = projects.filter((p) => p.ownerId !== currentMemberId)
+  const ownedCases = cases.filter((c) => c.ownerId === currentMemberId)
+  const sharedCases = cases.filter((c) => c.ownerId !== currentMemberId)
+
+  const renderCase = (c: Case) => (
+    <button
+      key={c.id}
+      type="button"
+      className={`sb-row sb-child${c.id === activeCaseId ? " is-active" : ""}`}
+      onClick={() => onSelectCase(c.id)}
+    >
+      <IconFolder size={14} className="sb-glyph-list" />
+      <span className="sb-child-name">{c.title}</span>
+      <span className="sb-count">{currentFiles(c).length}</span>
+    </button>
+  )
 
   const renderRow = (p: Project) => (
     <button
@@ -156,6 +181,44 @@ export function Sidebar({
         <button type="button" className="sb-row sb-add" onClick={onOpenAddProject}>
           <IconPlus size={14} /> New Project
         </button>
+      </section>
+
+      <section className="sb-section">
+        <div className="sb-space">
+          <button
+            type="button"
+            className={`sb-row sb-space-head sb-space-btn${documentsOpen && activeCaseId === null ? " is-active" : ""}`}
+            onClick={onOpenDocuments}
+          >
+            <span className="sb-space-badge"><IconFolder size={12} /></span>
+            Documents
+            <span
+              role="button"
+              tabIndex={0}
+              className="sb-icon-btn sb-row-end"
+              title="Add document"
+              onClick={(e) => { e.stopPropagation(); onOpenAddDocument() }}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); onOpenAddDocument() } }}
+            >
+              <IconPlus size={14} />
+            </span>
+          </button>
+
+          <div className="sb-children">
+            {ownedCases.length > 0 && (
+              <>
+                <span className="sb-group">Owned by me</span>
+                {ownedCases.map(renderCase)}
+              </>
+            )}
+            {sharedCases.length > 0 && (
+              <>
+                <span className="sb-group">Shared with me</span>
+                {sharedCases.map(renderCase)}
+              </>
+            )}
+          </div>
+        </div>
       </section>
     </aside>
   )

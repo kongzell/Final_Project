@@ -62,6 +62,21 @@ export const IconTaskList = ({ size = 16, className }: P) =>
 export const IconStar = ({ size = 16, className }: P) =>
   svg(<path d="m12 4 2.4 5 5.6.7-4 3.9 1 5.4L12 16.4 7 19l1-5.4-4-3.9 5.6-.7z" />, size, className)
 
+export const IconFolder = ({ size = 16, className }: P) =>
+  svg(<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />, size, className)
+
+export const IconFile = ({ size = 16, className }: P) =>
+  svg(<><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /></>, size, className)
+
+export const IconDownload = ({ size = 16, className }: P) =>
+  svg(<><path d="M12 4v12" /><path d="m7 11 5 5 5-5" /><path d="M5 20h14" /></>, size, className)
+
+export const IconUpload = ({ size = 16, className }: P) =>
+  svg(<><path d="M12 16V4" /><path d="m7 9 5-5 5 5" /><path d="M5 20h14" /></>, size, className)
+
+export const IconLink = ({ size = 16, className }: P) =>
+  svg(<><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1" /><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1" /></>, size, className)
+
 export const IconTrash = ({ size = 16, className }: P) =>
   svg(<><path d="M4 7h16M9 7V5h6v2" /><path d="M6 7v13h12V7" /><path d="M10 11v6M14 11v6" /></>, size, className)
 

@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from app import overdue
 from app.config import get_settings
-from app.routers import ai, auth, github, members, projects, system, tasks
+from app.routers import ai, auth, cases, github, members, projects, system, tasks
 
 settings = get_settings()
 
@@ -52,6 +52,7 @@ app.add_middleware(
 
 app.include_router(ai.router)
 app.include_router(auth.router)
+app.include_router(cases.router)
 app.include_router(github.router)
 app.include_router(system.router)
 app.include_router(members.router)

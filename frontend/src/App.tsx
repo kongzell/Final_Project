@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import type { Member, PriorityId, Project, StatusId } from "./types"
+import type { Case, Member, PriorityId, Project, StatusId } from "./types"
 import type { ThemeId } from "./themes"
 import { loadTheme, saveTheme } from "./themes"
-import type { AuthStatus, SubtaskSuggestion } from "./api"
+import type { AuthStatus, NewCase, SubtaskSuggestion } from "./api"
 import * as api from "./api"
 import {
   getAuthStatus, getMembers, logout, updateMyEmail, updateMyRole,
 } from "./api"
+import { AddDocumentModal } from "./components/AddDocumentModal"
 import { AddMemberModal } from "./components/AddMemberModal"
 import { AddProjectModal } from "./components/AddProjectModal"
 import { AiBreakdownModal } from "./components/AiBreakdownModal"
@@ -14,6 +15,7 @@ import type { TaskDraft } from "./components/Board"
 import { Board } from "./components/Board"
 import type { DashboardTab } from "./components/Dashboard"
 import { Dashboard } from "./components/Dashboard"
+import { DocumentsView } from "./components/Documents"
 import { RightSidebar } from "./components/RightSidebar"
 import { Sidebar } from "./components/Sidebar"
 import { Topbar } from "./components/Topbar"
@@ -40,6 +42,15 @@ export default function App() {
   const [starredIds, setStarredIds] = useState<string[]>([])
   const [theme, setTheme] = useState<ThemeId>(loadTheme)
   const [auth, setAuth] = useState<AuthStatus | null>(null)
+
+  // ---- หน้า Documents ----
+  /** "board" = บอร์ดโปรเจค (เดิม) · "documents" = หน้าเรื่อง/เอกสาร */
+  const [view, setView] = useState<"board" | "documents">("board")
+  const [cases, setCases] = useState<Case[]>([])
+  const [activeCaseId, setActiveCaseId] = useState<string | null>(null)
+  const [docModalOpen, setDocModalOpen] = useState(false)
+  /** id ของเรื่องที่กำลังจัดการสมาชิกอยู่ — null = ปิด */
+  const [caseMemberModalId, setCaseMemberModalId] = useState<string | null>(null)
 
   const searchRef = useRef<HTMLInputElement>(null)
 
@@ -97,6 +108,15 @@ export default function App() {
     }
   }, [])
 
+  const refreshCases = useCallback(async () => {
+    try {
+      setCases(await api.getCases())
+    } catch {
+      // ยังไม่ล็อกอิน — หน้า NeedLogin บอกอยู่แล้ว
+      setCases([])
+    }
+  }, [])
+
   const refreshAuth = useCallback(async () => {
     try {
       setAuth(await getAuthStatus())
@@ -114,7 +134,9 @@ export default function App() {
     void refreshMembers()
     // oxlint-disable-next-line react/set-state-in-effect
     void refreshProjects()
-  }, [refreshAuth, refreshMembers, refreshProjects])
+    // oxlint-disable-next-line react/set-state-in-effect
+    void refreshCases()
+  }, [refreshAuth, refreshMembers, refreshProjects, refreshCases])
 
   // null เมื่อยังไม่มีโปรเจคสักใบ — หน้าจอจะแสดง empty state แทน
   const project = projects.find((p) => p.id === activeProjectId) ?? projects[0] ?? null
@@ -243,6 +265,46 @@ export default function App() {
     void sync(() => api.deleteProject(project.id))
   }
 
+  // ---- Documents ----
+  // ต่างจาก sync() ของบอร์ด: โยน error ต่อให้ modal โชว์เอง เพราะการอัปโหลดมีสาเหตุพลาดหลายแบบ
+  // (ไฟล์ใหญ่ ชนิดไม่รับ โปรเจคถูกผูกแล้ว) ที่ผู้ใช้ต้องเห็นตรงจุดที่กด
+  const createCase = async (input: NewCase) => {
+    const created = await api.createCase(input)
+    await refreshCases()
+    setActiveCaseId(created.id)
+  }
+
+  const caseActions = {
+    onUpdate: async (id: string, patch: api.CasePatch) => {
+      await api.updateCase(id, patch)
+      await refreshCases()
+    },
+    onDelete: async (id: string) => {
+      await api.deleteCase(id)
+      setActiveCaseId(null)
+      await refreshCases()
+    },
+    onAddFile: async (id: string, file: File, category: Case["files"][number]["category"], replacesId?: string) => {
+      await api.addCaseFile(id, file, category, replacesId)
+      await refreshCases()
+    },
+    onDeleteFile: async (id: string, fileId: string) => {
+      await api.deleteCaseFile(id, fileId)
+      await refreshCases()
+    },
+    onManageMembers: (id: string) => setCaseMemberModalId(id),
+  }
+
+  const activeCase = cases.find((c) => c.id === caseMemberModalId) ?? null
+  const caseMembers = activeCase ? allMembers.filter((m) => activeCase.memberIds.includes(m.id)) : []
+  const caseAvailable = activeCase ? allMembers.filter((m) => !activeCase.memberIds.includes(m.id)) : []
+  const caseIsOwner = activeCase !== null && me !== null && activeCase.ownerId === me
+
+  /** โปรเจคที่ผูกเรื่องได้ตอนสร้าง — ฉันเป็นเจ้าของ/admin และยังไม่ถูกเรื่องไหนผูก */
+  const linkableProjects = projects.filter(
+    (p) => me !== null && (p.ownerId === me || p.adminIds.includes(me)) && !cases.some((c) => c.projectId === p.id),
+  )
+
   const toggleStar = () => {
     if (!project) return
     setStarredIds((prev) =>
@@ -266,14 +328,21 @@ export default function App() {
           members={projectMembers}
           filters={filters}
           onChangeFilters={setFilters}
-          onSelectProject={setActiveProjectId}
+          onSelectProject={(id) => { setActiveProjectId(id); setView("board") }}
           onOpenAddProject={() => setProjectModalOpen(true)}
           onCollapse={() => setCollapsed(true)}
+          cases={cases}
+          activeCaseId={view === "documents" ? activeCaseId : null}
+          documentsOpen={view === "documents"}
+          onOpenDocuments={() => { setView("documents"); setActiveCaseId(null) }}
+          onSelectCase={(id) => { setView("documents"); setActiveCaseId(id) }}
+          onOpenAddDocument={() => { setView("documents"); setDocModalOpen(true) }}
         />
       )}
 
       <main className="main">
         <Topbar
+          documents={view === "documents"}
           project={project}
           projects={projects}
           taskCount={project ? project.tasks.length : 0}
@@ -309,6 +378,18 @@ export default function App() {
 
         {auth !== null && auth.member === null ? (
           <NeedLogin configured={auth.configured} />
+        ) : view === "documents" ? (
+          <DocumentsView
+            cases={cases}
+            projects={projects}
+            members={allMembers}
+            currentMemberId={me}
+            selectedId={activeCaseId}
+            onSelect={setActiveCaseId}
+            onAdd={() => setDocModalOpen(true)}
+            onOpenProject={(id) => { setActiveProjectId(id); setView("board") }}
+            detail={caseActions}
+          />
         ) : project === null ? (
           <EmptyProjects onOpen={() => setProjectModalOpen(true)} />
         ) : (
@@ -346,6 +427,7 @@ export default function App() {
         )}
       </main>
 
+      {view === "board" && (
       <div className="rs-wrap">
         <RightSidebar
           project={project}
@@ -361,8 +443,9 @@ export default function App() {
           canManage={canManage}
         />
       </div>
+      )}
 
-      {canManage && (
+      {canManage && view === "board" && (
         <button
           type="button"
           className="ai-fab"
@@ -420,6 +503,32 @@ export default function App() {
           onAddExisting={addExistingMember}
           onRemove={removeMember}
           onSetRole={(id, role) => void sync(() => api.setProjectMemberRole(project.id, id, role))}
+          onImported={refreshMembers}
+        />
+      )}
+
+      {docModalOpen && (
+        <AddDocumentModal
+          linkable={linkableProjects}
+          onClose={() => setDocModalOpen(false)}
+          onCreate={createCase}
+        />
+      )}
+
+      {activeCase && (
+        <AddMemberModal
+          noun="document"
+          projectName={activeCase.title}
+          githubRepo={null}
+          members={caseMembers}
+          ownerId={activeCase.ownerId}
+          adminIds={activeCase.adminIds}
+          isOwner={caseIsOwner}
+          available={caseAvailable}
+          onClose={() => setCaseMemberModalId(null)}
+          onAddExisting={(id) => void api.addCaseMember(activeCase.id, id).then(refreshCases)}
+          onRemove={(id) => void api.removeCaseMember(activeCase.id, id).then(refreshCases)}
+          onSetRole={(id, role) => void api.setCaseMemberRole(activeCase.id, id, role).then(refreshCases)}
           onImported={refreshMembers}
         />
       )}

@@ -11,3 +11,5 @@ httpx>=0.27
 itsdangerous>=2.2
 # เข้ารหัส github_token ก่อนเก็บลงฐานข้อมูล
 cryptography>=43
+# รับไฟล์อัปโหลด (multipart/form-data) ในหน้า Documents
+python-multipart>=0.0.9

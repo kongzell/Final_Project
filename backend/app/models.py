@@ -19,6 +19,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Table,
     Text,
@@ -59,6 +60,16 @@ task_assignees = Table(
     Base.metadata,
     Column("task_id", ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True),
     Column("member_id", ForeignKey("members.id", ondelete="CASCADE"), primary_key=True),
+)
+
+#: สมาชิกของ "เรื่อง" ในหน้า Documents — โครงเดียวกับ project_members ทุกประการ
+#: แยกจากสมาชิกโปรเจคเพราะฝ่ายรับเอกสารกับฝ่ายเขียนโค้ดอาจเป็นคนละคน
+case_members = Table(
+    "case_members",
+    Base.metadata,
+    Column("case_id", ForeignKey("cases.id", ondelete="CASCADE"), primary_key=True),
+    Column("member_id", ForeignKey("members.id", ondelete="CASCADE"), primary_key=True),
+    Column("role", String(10), nullable=False, default="member", server_default="member"),
 )
 
 
@@ -200,6 +211,11 @@ class Task(Base):
     #: เก็บเป็น JSON array เหมือน tags แทนที่จะทำตารางเชื่อม เพราะใช้แค่แสดงผล
     #: ไม่ได้ query ย้อนกลับว่า "ใครรอใบนี้อยู่" และระบบไม่ได้ล็อกไม่ให้เริ่มงานจริง ๆ
     depends_on: Mapped[list[str] | None] = mapped_column(JSON, nullable=True, default=list)
+    #: ไฟล์ในหน้า Documents ที่งานนี้ถูกแตกมาจาก — ย้อนกลับได้ว่างานมาจากเอกสารฉบับไหน
+    #: SET NULL เพราะลบเอกสารทิ้งแล้วงานที่ทำอยู่ต้องไม่หายตาม
+    source_file_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("case_files.id", ondelete="SET NULL"), nullable=True
+    )
     estimate_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
     complexity: Mapped[str | None] = mapped_column(String(10), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
@@ -263,6 +279,97 @@ class TaskComment(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     member: Mapped[Member | None] = relationship(lazy="selectin")
+
+
+class Case(Base):
+    """เรื่อง 1 เรื่องในหน้า Documents — แฟ้มที่รวมเอกสารของงานเดียวกัน
+
+    สร้างอัตโนมัติตอนอัปโหลดไฟล์แรก แล้วค่อยเติมไฟล์ที่เกี่ยวข้อง (ฉบับแก้ไข สัญญา
+    รายงานประชุม) เข้ามาทีหลัง ผูกกับโปรเจคได้ 1 ต่อ 1 เพื่อให้ AI แตกงานลงบอร์ดนั้น
+    """
+
+    __tablename__ = "cases"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    #: ชื่อเรื่อง — ตั้งต้นจากชื่อไฟล์แรก เจ้าของแก้ได้
+    title: Mapped[str] = mapped_column(Text)
+    #: received / in_progress / delivered / closed — วงจรของเรื่อง ไม่ใช่ของงาน
+    status: Mapped[str] = mapped_column(String(20), default="received")
+    #: เลขที่หนังสือหลักของเรื่อง เช่น "สธ 0201/1234"
+    doc_number: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    #: หน่วยงานต้นเรื่อง
+    agency: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    #: กำหนดส่งมอบตามเอกสาร — ใช้ป้าย Overdue เดียวกับงาน
+    deadline: Mapped[date | None] = mapped_column(Date, nullable=True)
+    #: SET NULL ทั้งคู่ — คนถูกลบหรือโปรเจคถูกลบ เรื่องกับเอกสารต้องยังอยู่
+    owner_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("members.id", ondelete="SET NULL"), nullable=True
+    )
+    #: โปรเจคที่ผูกไว้ — unique เพราะกติกาคือ 1 เรื่องต่อ 1 โปรเจค
+    project_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, unique=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, onupdate=_now
+    )
+
+    members: Mapped[list[Member]] = relationship(secondary=case_members, lazy="selectin")
+    memberships: Mapped[list[CaseMember]] = relationship(lazy="selectin", viewonly=True)
+    files: Mapped[list[CaseFile]] = relationship(
+        back_populates="case",
+        cascade="all, delete-orphan",
+        order_by="CaseFile.uploaded_at",
+        lazy="selectin",
+    )
+    project: Mapped[Project | None] = relationship(lazy="selectin")
+
+    @property
+    def admin_ids(self) -> set[str]:
+        return {cm.member_id for cm in self.memberships if cm.role == "admin"}
+
+    def can_manage(self, member_id: str | None) -> bool:
+        """เจ้าของหรือ admin ของเรื่อง — แก้ข้อมูล เพิ่มคน ผูกโปรเจค"""
+        return member_id is not None and (member_id == self.owner_id or member_id in self.admin_ids)
+
+
+class CaseMember(Base):
+    """แถวหนึ่งในตารางเชื่อม — มีไว้อ่าน role เท่านั้น"""
+
+    __table__ = case_members
+
+    member: Mapped[Member] = relationship(lazy="selectin", overlaps="members")
+
+
+class CaseFile(Base):
+    """เอกสาร 1 ฉบับในเรื่อง — ตัวไฟล์เก็บใน Postgres ตรง ๆ
+
+    เก็บเป็น bytea แทนดิสก์เพราะ Render (free) ไม่มีดิสก์ถาวร ไฟล์จะหายทุกครั้งที่ deploy
+    จำกัดขนาดต่อไฟล์ไว้ที่ router — เอกสารราชการเป็น PDF ไม่กี่ร้อย KB อยู่แล้ว
+    """
+
+    __tablename__ = "case_files"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    case_id: Mapped[str] = mapped_column(ForeignKey("cases.id", ondelete="CASCADE"))
+    filename: Mapped[str] = mapped_column(Text)
+    content_type: Mapped[str] = mapped_column(String(120))
+    size: Mapped[int] = mapped_column(Integer)
+    #: tor / contract / amendment / minutes / acceptance / other
+    category: Mapped[str] = mapped_column(String(30), default="other")
+    #: ฉบับที่เท่าไหร่ของเอกสารเดิม — ฉบับแก้ไขชี้กลับไปฉบับก่อนหน้าด้วย replaces_id
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    replaces_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("case_files.id", ondelete="SET NULL"), nullable=True
+    )
+    #: ตัวไฟล์ — ห้ามใส่ใน JSON รายการ ดึงผ่าน endpoint ดาวน์โหลดเท่านั้น
+    data: Mapped[bytes] = mapped_column(LargeBinary)
+    uploaded_by: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("members.id", ondelete="SET NULL"), nullable=True
+    )
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    case: Mapped[Case] = relationship(back_populates="files")
 
 
 class WebhookEvent(Base):

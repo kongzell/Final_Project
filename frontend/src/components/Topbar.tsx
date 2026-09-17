@@ -7,12 +7,13 @@ import type { ThemeId } from "../themes"
 import { Menu, MenuItem, MenuLabel } from "./Menu"
 import { ThemePicker } from "./ThemePicker"
 import {
-  IconCheck, IconChevronDown, IconChevronRight, IconGithub, IconLayers, IconPencil,
-  IconSearch, IconStar, IconTaskList, IconTrash, IconUsers,
+  IconCheck, IconChevronDown, IconChevronRight, IconFolder, IconGithub, IconLayers, IconPencil, IconSearch, IconStar, IconTaskList, IconTrash, IconUsers,
 } from "./Icons"
 import "./Topbar.css"
 
 type Props = {
+  /** อยู่หน้า Documents — breadcrumb เปลี่ยน และซ่อนของที่เป็นของโปรเจค */
+  documents?: boolean
   project: Project | null
   projects: Project[]
   taskCount: number
@@ -38,6 +39,7 @@ type Props = {
 }
 
 export function Topbar({
+  documents = false,
   project, projects, taskCount, query, searchRef, starred, collapsed, theme,
   canDelete, groupBy, auth, onChangeGroupBy, onLogout, onChangeRole, onChangeEmail,
   onQueryChange,
@@ -56,6 +58,12 @@ export function Topbar({
         )}
 
         <nav className="tb-crumbs">
+          {documents ? (
+            <span className="tb-crumb tb-crumb-current">
+              <span className="tb-crumb-badge"><IconFolder size={11} /></span> Documents
+            </span>
+          ) : (
+          <>
           <span className="tb-crumb">
             <span className="tb-crumb-badge"><IconUsers size={11} /></span> Team Projects
           </span>
@@ -127,10 +135,12 @@ export function Topbar({
           </button>
             </>
           )}
+          </>
+          )}
         </nav>
 
         <div className="tb-actions">
-          {project !== null && (
+          {project !== null && !documents && (
             <>
           <Menu
             align="right"

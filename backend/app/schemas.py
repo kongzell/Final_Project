@@ -161,10 +161,61 @@ class MemberRoleUpdate(ApiModel):
     role: Literal["member", "admin"]
 
 
+# ---------- documents ----------
+
+CaseStatus = Literal["received", "in_progress", "delivered", "closed"]
+FileCategory = Literal["tor", "contract", "amendment", "minutes", "acceptance", "other"]
+
+
+class CaseFileOut(ApiModel):
+    id: str
+    filename: str
+    content_type: str
+    size: int
+    category: FileCategory
+    version: int
+    #: ไฟล์ฉบับก่อนที่ฉบับนี้มาแทน — ไว้โชว์ประวัติ
+    replaces_id: str | None = None
+    uploaded_by: str | None = None
+    uploaded_at: datetime
+
+
+class CaseOut(ApiModel):
+    id: str
+    title: str
+    status: CaseStatus
+    doc_number: str | None = None
+    agency: str | None = None
+    deadline: date | None = None
+    owner_id: str | None = None
+    #: โปรเจคที่ผูก (1:1) — null = ยังไม่ผูก ปุ่มแตกงานยังกดไม่ได้
+    project_id: str | None = None
+    member_ids: list[str]
+    admin_ids: list[str] = []
+    files: list[CaseFileOut]
+    created_at: datetime
+
+
+class CaseUpdate(ApiModel):
+    """ทุกฟิลด์ไม่บังคับ — ส่งมาเฉพาะอันที่จะแก้ ส่ง project_id เป็น null เพื่อถอดลิงก์"""
+
+    title: str | None = Field(default=None, min_length=1, max_length=300)
+    status: CaseStatus | None = None
+    doc_number: str | None = Field(default=None, max_length=60)
+    agency: str | None = Field(default=None, max_length=160)
+    deadline: date | None = None
+    project_id: str | None = None
+
+
 # ---------- AI ----------
+
+#: วิธีแตกงานที่ AI เลือกใช้ — vertical = ตามฟีเจอร์ (agile), layered = ตามชั้น (waterfall)
+SliceStyle = Literal["vertical", "layered"]
+
 
 class BreakdownRequest(ApiModel):
     title: str = Field(min_length=1, max_length=300)
+    #: บริบทเพิ่มเติม — อยากบังคับวิธีแตกงานก็เขียนตรงนี้ เช่น "แบ่งตาม layer"
     context: str = Field(default="", max_length=1000)
     count: int = Field(default=5, ge=2, le=12)
 
@@ -186,6 +237,10 @@ class SubtaskSuggestion(ApiModel):
 class BreakdownResult(ApiModel):
     summary: str
     subtasks: list[SubtaskSuggestion]
+    #: วิธีที่ใช้แตกจริง — ตอนขอ auto จะได้รู้ว่า AI เลือกอะไร
+    style: SliceStyle = "vertical"
+    #: เหตุผลหนึ่งบรรทัดว่าทำไมแบบนั้นถึงเหมาะกับคำขอนี้
+    style_reason: str = ""
     #: true เมื่อยังไม่ได้ตั้ง API key และกำลังใช้ข้อมูลตัวอย่าง
     mock: bool = False
 

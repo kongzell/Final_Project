@@ -133,7 +133,7 @@ export function AiBreakdownModal({ projectName, onClose, onAdd }: Props) {
             <span className="field-label">More context (optional)</span>
             <input
               className="field-input"
-              placeholder="e.g. React + FastAPI, auth already exists"
+              placeholder="e.g. React + FastAPI, auth already exists · or: split by layer"
               value={context}
               onChange={(e) => setContext(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && run()}
@@ -155,6 +155,16 @@ export function AiBreakdownModal({ projectName, onClose, onAdd }: Props) {
           )}
 
           {result && (
+            <p className="ai-chose">
+              <IconSparkle size={13} />
+              <span>
+                AI split this <strong>{result.style === "layered" ? "by layer" : "by feature"}</strong>
+                {result.styleReason && <> — {result.styleReason}</>}
+              </span>
+            </p>
+          )}
+
+          {result && (
             <section className="modal-section">
               <h3 className="modal-h3">{result.summary}</h3>
               <ul className="ai-list">
@@ -169,6 +179,7 @@ export function AiBreakdownModal({ projectName, onClose, onAdd }: Props) {
                       {picked.has(i) && <IconCheck size={12} />}
                     </button>
 
+                    <span className="ai-num">#{i + 1}</span>
                     <div className="ai-info">
                       {editing === i ? (
                         <SubtaskForm
@@ -209,6 +220,14 @@ export function AiBreakdownModal({ projectName, onClose, onAdd }: Props) {
                           <span key={t} className="ai-tag">{t}</span>
                         ))}
                         <span className="ai-est">{formatDuration(s.estimateHours)}</span>
+                        {s.dependsOn.length > 0 && (
+                          <span
+                            className="ai-dep"
+                            title={`Needs ${s.dependsOn.map((d) => `#${d + 1}`).join(", ")} finished first`}
+                          >
+                            รอ {s.dependsOn.map((d) => `#${d + 1}`).join(" ")}
+                          </span>
+                        )}
                         <span
                           className="ai-cx"
                           style={{ color: COMPLEXITIES.find((c) => c.id === s.complexity)?.color }}

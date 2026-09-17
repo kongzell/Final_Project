@@ -6,12 +6,15 @@
 """
 
 import json
+import logging
 
 import httpx
 from fastapi import HTTPException
 
 from app.config import get_settings
 from app.schemas import BreakdownResult, SubtaskSuggestion
+
+log = logging.getLogger("ai")
 
 ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
@@ -23,6 +26,8 @@ RESPONSE_SCHEMA = {
     "type": "object",
     "properties": {
         "summary": {"type": "string"},
+        "style": {"type": "string", "enum": ["vertical", "layered"]},
+        "styleReason": {"type": "string"},
         "subtasks": {
             "type": "array",
             "items": {
@@ -43,7 +48,7 @@ RESPONSE_SCHEMA = {
             },
         },
     },
-    "required": ["summary", "subtasks"],
+    "required": ["summary", "subtasks", "style"],
 }
 
 PROMPT = """You are a tech lead breaking work down for a software team.
@@ -53,16 +58,7 @@ The request: "{title}"
 
 Break it into subtasks that can actually be picked up and checked off:
 
-1. Slice the work VERTICALLY, not by technical layer. Each subtask should be one thin
-   end-to-end capability a user or caller can actually exercise when it is done — it may
-   touch the database, the API and the UI all at once, and that is fine.
-   Good: "Log in with email and password", "Show an error when the password is wrong",
-   "Stay logged in after a refresh".
-   Bad (layer slicing): "Design the users table", "Write the login API", "Build the login form"
-   — those three only become useful together, so nobody can finish or test one on its own.
-   Split by layer ONLY when the work genuinely has no user-facing slice, such as setting up
-   CI, a one-off data migration, or upgrading a library. Never split something broad
-   like "do the frontend"
+1. {slice_rule}
 2. Answer in the SAME LANGUAGE as the request above — Thai request, Thai answer;
    English request, English answer. This applies to summary, title, description and reason.
    Keep technical terms in English either way: library names, endpoints, table and field
@@ -72,7 +68,10 @@ Break it into subtasks that can actually be picked up and checked off:
    Do not repeat the title, and do not restate the complexity reason
 3. category must be one of: {categories} — these stay in English, they are fixed values
 4. tags are the skills/tools/languages the subtask actually needs, e.g. React, TypeScript,
-   PostgreSQL, REST API — give 1-4, always in English, never vague words like "coding"
+   PostgreSQL, REST API — give 1-4, always in English, never vague words like "coding".
+   If the extra context names a language, framework, database or service, use exactly
+   those in tags, titles and descriptions — never swap in an alternative you prefer.
+   If it says something already exists (auth, a table, an endpoint), do not create it again
 5. estimateHours is what a mid-level developer would realistically spend (0.5-16)
 6. complexity: low = straightforward, medium = needs some design thinking,
    high = risky, unfamiliar, or touching many parts
@@ -81,18 +80,88 @@ Break it into subtasks that can actually be picked up and checked off:
    Do not pad a small job; split a large one further. Order them the way they should be done.
 9. dependsOn lists the positions (0-based index in this list) of the subtasks that MUST be
    finished before this one can start. Only reference positions BEFORE this one.
-   Keep it minimal and real: a subtask depends on another only when starting it early
+   {depends_rule}
+
+10. style is the way you actually split the work: "vertical" or "layered".
+    styleReason is one line, in the same language as the request, on why that way fits
+    THIS request — write it even when the way was given to you
+
+summary is one sentence saying what the whole request is."""
+
+# ---------- กฎข้อ 1 กับข้อ 9 มีสองแบบ AI เลือกเองว่าจะใช้แบบไหนกับคำขอนี้ ----------
+
+#: ตัดตามฟีเจอร์ แต่ละใบใช้ได้จริงในตัวเอง (agile / user story)
+VERTICAL_SLICE = """Slice the work VERTICALLY, not by technical layer. Each subtask should be one thin
+   end-to-end capability a user or caller can actually exercise when it is done — it may
+   touch the database, the API and the UI all at once, and that is fine.
+   Good: "Log in with email and password", "Show an error when the password is wrong",
+   "Stay logged in after a refresh".
+   Bad (layer slicing): "Design the users table", "Write the login API", "Build the login form"
+   — those three only become useful together, so nobody can finish or test one on its own.
+   Split by layer ONLY when the work genuinely has no user-facing slice, such as setting up
+   CI, a one-off data migration, or upgrading a library. Never split something broad
+   like "do the frontend\""""
+
+#: ตัดตามชั้นเทคโนโลยี ทำเรียงจากล่างขึ้นบน (waterfall)
+LAYERED_SLICE = """Slice the work BY TECHNICAL LAYER, from the bottom up: data model first, then the
+   API or business logic, then the user interface, then tests. Each subtask lives in one
+   layer only and its title should say which, e.g. "Design the users table",
+   "Write the login API", "Build the login form", "Write integration tests for login".
+   Every subtask must still be something you can tell is finished — never something
+   broad like "do the frontend\""""
+
+#: กฎข้อ 9 ท่อนท้ายสำหรับแบบฟีเจอร์ — ควรว่างเป็นส่วนใหญ่
+VERTICAL_DEPENDS = """Keep it minimal and real: a subtask depends on another only when starting it early
    would be wasted work, not merely because it feels later in the plan.
    Slices that touch different features, screens or endpoints are independent — leave
    dependsOn empty so the team can work on them in parallel.
    Aim for most subtasks to have an empty dependsOn; a chain where every task waits for
-   the previous one means the work was sliced by layer, so go back and slice it vertically
+   the previous one means the work was sliced by layer, so go back and slice it vertically"""
 
-summary is one sentence saying what the whole request is."""
+#: กฎข้อ 9 ท่อนท้ายสำหรับแบบชั้น — ลูกโซ่เป็นเรื่องปกติ
+LAYERED_DEPENDS = """Layers build on each other, so a chain is expected here: the API depends on the
+   data model, the UI depends on the API, tests depend on what they test. Point each
+   subtask at the layer directly beneath it that it actually calls or reads from.
+   Subtasks in the same layer that do not share code are independent — leave those empty"""
+
+# ให้เกณฑ์ตัดสินก่อน แล้วแนบกฎของทั้งสองแบบให้เลือกใช้
+# ผู้ใช้บังคับได้ด้วยการเขียนใน context (ไม่มีปุ่มเลือกบนหน้าเว็บ ลดของให้กด)
+# ลังเลให้เอนไปทาง vertical เพราะทีมทำขนานกันได้มากกว่า
+SLICE_RULE = (
+    """Decide which way to split fits THIS request, then use that way for every subtask
+   and report it in `style`:
+   - If the extra context from the user asks for a particular way — "by feature",
+     "by layer", "agile", "waterfall", "in build order", or words to that effect, in any
+     language — follow it. The user knows their team; do not second-guess them
+   - Otherwise choose "vertical" (by feature) when the request is a product, module or
+     feature set that users can exercise piece by piece — most requests are like this
+   - Choose "layered" (by technical layer) when the request is ONE capability whose
+     layers genuinely have to be built in order (a single endpoint end to end, a schema
+     change, CI or infrastructure setup)
+   When unsure, choose "vertical" — it lets more people work at the same time.
+
+   If you chose vertical: """
+    + VERTICAL_SLICE
+    + """
+
+   If you chose layered: """
+    + LAYERED_SLICE
+)
+
+DEPENDS_RULE = (
+    """Follow the guidance that matches the style you chose.
+   If vertical: """
+    + VERTICAL_DEPENDS
+    + """
+   If layered: """
+    + LAYERED_DEPENDS
+)
 
 MOCK = BreakdownResult(
     summary="[sample] Shopping cart, storefront and back office",
     mock=True,
+    style="vertical",
+    style_reason="[sample] Several separate capabilities, so each can be shipped on its own",
     subtasks=[
         SubtaskSuggestion(
             title="Add a product to the cart and see it there",
@@ -199,6 +268,8 @@ async def breakdown(title: str, context: str = "", count: int = 5) -> BreakdownR
         context=f"Extra context from the user: {context}" if context.strip() else "",
         categories=", ".join(CATEGORIES),
         count=count,
+        slice_rule=SLICE_RULE,
+        depends_rule=DEPENDS_RULE,
     )
 
     payload = {
@@ -222,6 +293,9 @@ async def breakdown(title: str, context: str = "", count: int = 5) -> BreakdownR
         raise HTTPException(502, f"Could not reach Gemini ({type(exc).__name__}): {exc}") from exc
 
     if res.status_code != 200:
+        # เก็บรหัสจริงไว้ใน log ด้วย เพราะข้อความบนหน้าเว็บถูกย่อจนแยกไม่ออกทีหลังว่า
+        # โควตาหมด (429) หรือฝั่ง Google แน่น (503) — API key อยู่ใน header ไม่ใช่ body จึง log ได้
+        log.warning("Gemini ตอบ %s (breakdown): %s", res.status_code, res.text[:200])
         raise HTTPException(502, _explain(res.status_code, res.text))
 
     try:
@@ -304,6 +378,8 @@ async def match_commit(message: str, tasks: list[dict]) -> dict | None:
                 headers={"x-goog-api-key": settings.gemini_api_key},
             )
         if res.status_code != 200:
+            # ทำงานอยู่เบื้องหลัง ไม่มีใครเห็น error — ไม่ log ไว้จะไม่รู้เลยว่าเงียบเพราะอะไร
+            log.warning("Gemini ตอบ %s (match_commit): %s", res.status_code, res.text[:200])
             return None
         data = json.loads(res.json()["candidates"][0]["content"]["parts"][0]["text"])
     except (httpx.HTTPError, KeyError, IndexError, ValueError):

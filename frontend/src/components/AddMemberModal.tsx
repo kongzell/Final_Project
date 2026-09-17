@@ -25,11 +25,13 @@ type Props = {
   onSetRole: (memberId: string, role: "member" | "admin") => void
   /** เรียกหลังดึงรายชื่อจาก GitHub เสร็จ เพื่อให้ App โหลดพนักงานใหม่ */
   onImported: () => void
+  /** คำเรียกสิ่งที่กำลังจัดการสมาชิก — "project" (ค่าเริ่มต้น) หรือ "document" */
+  noun?: string
 }
 
 export function AddMemberModal({
   projectName, githubRepo, members, ownerId, adminIds, isOwner, available, onClose,
-  onAddExisting, onRemove, onSetRole, onImported,
+  onAddExisting, onRemove, onSetRole, onImported, noun = "project",
 }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose()
@@ -48,7 +50,7 @@ export function AddMemberModal({
       >
         <header className="modal-head">
           <div>
-            <h2 className="modal-title">Add members to project</h2>
+            <h2 className="modal-title">Add members to {noun}</h2>
             <p className="modal-sub">{projectName}</p>
           </div>
           <button type="button" className="modal-close" onClick={onClose} title="Close">
@@ -58,7 +60,7 @@ export function AddMemberModal({
 
         <div className="modal-body">
           <section className="modal-section">
-            <h3 className="modal-h3">In this project ({members.length})</h3>
+            <h3 className="modal-h3">In this {noun} ({members.length})</h3>
             {members.length === 0 && <p className="modal-empty">Nobody in this project yet</p>}
             <ul className="member-list">
               {members.map((m) => {
@@ -90,7 +92,7 @@ export function AddMemberModal({
                       <button
                         type="button"
                         className="member-action is-danger"
-                        title="Remove from project"
+                        title={`Remove from ${noun}`}
                         onClick={() => onRemove(m.id)}
                       >
                         <IconTrash size={14} />

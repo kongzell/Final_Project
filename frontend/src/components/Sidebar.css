@@ -117,3 +117,7 @@
 }
 
 .sb-group:first-child { margin-top: 3px; }
+
+/* หัวข้อ Documents กดได้ทั้งแถว (ต่างจาก Team Projects ที่เป็นแค่ป้าย) */
+.sb-space-btn { width: 100%; background: none; border: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; }
+.sb-space-btn.is-active { color: var(--text-strong); }

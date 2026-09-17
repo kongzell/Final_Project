@@ -1,6 +1,6 @@
 /** เรียก backend ผ่าน path สัมพัทธ์ — vite (dev) และ nginx (prod) proxy /api ให้อยู่แล้ว */
 
-import type { Project, PriorityId, StatusId, Task } from "./types"
+import type { Case, CaseStatus, FileCategory, Project, PriorityId, StatusId, Task } from "./types"
 
 
 export type SubtaskSuggestion = {
@@ -19,6 +19,10 @@ export type SubtaskSuggestion = {
 export type BreakdownResult = {
   summary: string
   subtasks: SubtaskSuggestion[]
+  /** วิธีที่ AI ใช้แตกจริง — ตอนขอ auto จะได้รู้ว่ามันเลือกอะไร */
+  style: "vertical" | "layered"
+  /** เหตุผลหนึ่งบรรทัดว่าทำไมแบบนั้นถึงเหมาะกับคำขอนี้ */
+  styleReason: string
   /** true = ยังไม่ได้ตั้ง GEMINI_API_KEY กำลังใช้ข้อมูลตัวอย่าง */
   mock: boolean
 }
@@ -49,6 +53,7 @@ async function readError(res: Response): Promise<string> {
 
 export async function breakdownTask(
   title: string,
+  /** บริบทเพิ่มเติม — อยากบังคับวิธีแตกงานก็เขียนตรงนี้ AI จะทำตาม */
   context: string,
   /** backend มีค่าเริ่มต้นให้อยู่แล้ว ส่งมาเฉพาะตอนอยากบังคับจำนวน */
   count?: number,
@@ -60,6 +65,115 @@ export async function breakdownTask(
   })
   if (!res.ok) throw new ApiError(await readError(res), res.status)
   return res.json()
+}
+
+// ---------- documents ----------
+//
+// รายการเรื่องส่งมาเป็น camelCase ตรงกับ Case อยู่แล้ว ไม่ต้องแปลงเหมือน Task
+// อัปโหลดใช้ FormData ไม่ใช่ JSON เพราะมีไฟล์แนบมาในคำขอเดียว — ห้ามตั้ง Content-Type เอง
+// เบราว์เซอร์ต้องเป็นคนใส่ boundary ให้
+
+export async function getCases(): Promise<Case[]> {
+  const res = await fetch("/api/cases")
+  if (!res.ok) throw new ApiError(await readError(res), res.status)
+  return res.json()
+}
+
+export type NewCase = {
+  file: File
+  category: FileCategory
+  title?: string
+  docNumber?: string
+  agency?: string
+  deadline?: string
+  projectId?: string
+}
+
+/** อัปโหลดไฟล์แรก = สร้างเรื่องใหม่ */
+export async function createCase(input: NewCase): Promise<Case> {
+  const form = new FormData()
+  form.append("file", input.file)
+  form.append("category", input.category)
+  if (input.title) form.append("title", input.title)
+  if (input.docNumber) form.append("doc_number", input.docNumber)
+  if (input.agency) form.append("agency", input.agency)
+  if (input.deadline) form.append("deadline", input.deadline)
+  if (input.projectId) form.append("project_id", input.projectId)
+  const res = await fetch("/api/cases", { method: "POST", body: form })
+  if (!res.ok) throw new ApiError(await readError(res), res.status)
+  return res.json()
+}
+
+export type CasePatch = Partial<{
+  title: string
+  status: CaseStatus
+  docNumber: string | null
+  agency: string | null
+  deadline: string | null
+  projectId: string | null
+}>
+
+export async function updateCase(id: string, patch: CasePatch): Promise<Case> {
+  const res = await fetch(`/api/cases/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  })
+  if (!res.ok) throw new ApiError(await readError(res), res.status)
+  return res.json()
+}
+
+export async function deleteCase(id: string): Promise<void> {
+  const res = await fetch(`/api/cases/${id}`, { method: "DELETE" })
+  if (!res.ok) throw new ApiError(await readError(res), res.status)
+}
+
+/** เพิ่มเอกสารที่เกี่ยวข้อง — ส่ง replacesId เมื่อเป็นฉบับแก้ไขของไฟล์เดิม */
+export async function addCaseFile(
+  caseId: string,
+  file: File,
+  category: FileCategory,
+  replacesId?: string,
+): Promise<Case> {
+  const form = new FormData()
+  form.append("file", file)
+  form.append("category", category)
+  if (replacesId) form.append("replaces_id", replacesId)
+  const res = await fetch(`/api/cases/${caseId}/files`, { method: "POST", body: form })
+  if (!res.ok) throw new ApiError(await readError(res), res.status)
+  return res.json()
+}
+
+export async function deleteCaseFile(caseId: string, fileId: string): Promise<void> {
+  const res = await fetch(`/api/cases/${caseId}/files/${fileId}`, { method: "DELETE" })
+  if (!res.ok) throw new ApiError(await readError(res), res.status)
+}
+
+/** ลิงก์ดาวน์โหลด/เปิดไฟล์ — cookie ส่งไปเองเพราะโดเมนเดียวกัน */
+export const caseFileUrl = (caseId: string, fileId: string) =>
+  `/api/cases/${caseId}/files/${fileId}`
+
+export async function addCaseMember(caseId: string, memberId: string): Promise<void> {
+  const res = await fetch(`/api/cases/${caseId}/members/${memberId}`, { method: "POST" })
+  if (!res.ok) throw new ApiError(await readError(res), res.status)
+}
+
+export async function removeCaseMember(caseId: string, memberId: string): Promise<void> {
+  const res = await fetch(`/api/cases/${caseId}/members/${memberId}`, { method: "DELETE" })
+  if (!res.ok) throw new ApiError(await readError(res), res.status)
+}
+
+export async function setCaseMemberRole(
+  caseId: string,
+  memberId: string,
+  role: "member" | "admin",
+): Promise<void> {
+  const res = await fetch(`/api/cases/${caseId}/members/${memberId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ role }),
+  })
+  if (!res.ok) throw new ApiError(await readError(res), res.status)
 }
 
 // ---------- projects & tasks ----------

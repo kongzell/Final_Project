@@ -201,3 +201,40 @@
 }
 
 .ai-done:hover { background: var(--accent-hover); }
+
+/* ---------- วิธีแตกงานที่ AI เลือก ---------- */
+/* บอกให้รู้ว่ามันคิดยังไง ถ้าไม่เห็นด้วยพิมพ์บังคับใน More context แล้วแตกใหม่ได้ */
+.ai-chose {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 0 0 10px;
+  padding: 8px 11px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--text);
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+.ai-chose svg { flex: none; margin-top: 3px; color: var(--accent-text); }
+.ai-chose strong { color: var(--text-strong); }
+
+/* ลำดับใบ — ใช้อ้างในป้าย "รอ #2" */
+.ai-num {
+  flex: none;
+  align-self: flex-start;
+  margin-top: 2px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+/* ป้ายว่าใบนี้ต้องรอใบไหนก่อน — เส้นขอบเฉย ๆ เหมือนบนการ์ด ไม่ใช่เรื่องผิดปกติ */
+.ai-dep {
+  padding: 1px 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
