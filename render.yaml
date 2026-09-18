@@ -42,6 +42,10 @@ services:
       - key: AI_MOCK
         value: "false"
 
+      # ปิดเป็น "false" เมื่อไม่อยากให้ใครก็ได้สมัครบัญชีเอง
+      - key: ALLOW_SIGNUP
+        value: "true"
+
       # โดเมนเดียวกับ frontend อยู่แล้ว ไม่ต้องเปิด CORS ให้ใคร
       - key: CORS_ORIGIN
         sync: false
