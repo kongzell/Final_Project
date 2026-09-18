@@ -415,6 +415,7 @@ function Workspace({
           fromCaseId={c.id}
           directory={directory}
           members={members}
+          linkable={linkable}
           onClose={() => setRequesting(false)}
           onSubmit={(input) => onRequest(c.id, input)}
         />

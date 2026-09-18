@@ -222,7 +222,6 @@ export function DocumentFileModal({
                   <option key={p.id} value={p.id}>{p.name}{p.githubRepo ? ` · ${p.githubRepo}` : ""}</option>
                 ))}
               </select>
-              <span className="field-hint">Task cards created from this document land on that board. Nothing is created on GitHub.</span>
             </label>
           )}
 

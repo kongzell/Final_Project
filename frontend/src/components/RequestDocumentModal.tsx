@@ -16,15 +16,18 @@ type Props = {
   defaultSpaceId?: string
   /** ยื่นจากบอร์ด: เอกสารที่ได้รับผูกโปรเจคนี้ให้เลย */
   lockedProject?: Project
+  /** โปรเจคที่เลือกผูกได้ (ฉันเป็นเจ้าของ/admin) — ไม่ส่งมาหรือว่าง = ไม่มีช่องให้เลือก */
+  linkable?: Project[]
   onClose: () => void
   onSubmit: (input: NewDocumentRequest, fromCaseId: string) => Promise<void>
 }
 
 /** ขอเอกสารจากที่เก็บของทีมอื่น (หรือทีมตัวเอง) — เห็นแค่ชื่อทีมกับเจ้าของ ไม่เห็นไฟล์ข้างใน ผู้ดูแลฝั่งนั้นเป็นคนเลือกส่ง */
 export function RequestDocumentModal({
-  fromCaseId: fixedFrom, directory, members, spaces, defaultSpaceId, lockedProject, onClose, onSubmit,
+  fromCaseId: fixedFrom, directory, members, spaces, defaultSpaceId, lockedProject, linkable = [], onClose, onSubmit,
 }: Props) {
   const [spaceId, setSpaceId] = useState(fixedFrom ?? defaultSpaceId ?? spaces?.[0]?.id ?? "")
+  const [projectId, setProjectId] = useState(lockedProject?.id ?? "")
   const fromCaseId = fixedFrom ?? spaceId
   const targets = [...directory].sort((a, b) =>
     Number(b.id === fromCaseId) - Number(a.id === fromCaseId) || a.title.localeCompare(b.title, "th"),
@@ -53,7 +56,7 @@ export function RequestDocumentModal({
     setBusy(true)
     setError(null)
     try {
-      await onSubmit({ toCaseId, title: title.trim(), note: note.trim() || undefined, projectId: lockedProject?.id }, fromCaseId)
+      await onSubmit({ toCaseId, title: title.trim(), note: note.trim() || undefined, projectId: projectId || undefined }, fromCaseId)
       onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not send the request")
@@ -151,6 +154,19 @@ export function RequestDocumentModal({
               onKeyDown={(e) => e.key === "Enter" && void submit()}
             />
           </label>
+
+          {!lockedProject && linkable.length > 0 && (
+            <label className="field">
+              <span className="field-label">Project (optional)</span>
+              <select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+                <option value="">— Not related to a project —</option>
+                {linkable.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}{p.githubRepo ? ` · ${p.githubRepo}` : ""}</option>
+                ))}
+              </select>
+              <span className="field-hint">The document you receive is linked to that project and shows up in its card.</span>
+            </label>
+          )}
 
           <label className="field">
             <span className="field-label">Note (optional)</span>
