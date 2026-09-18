@@ -36,7 +36,6 @@ from app.schemas import (
     CaseOut,
     CaseUpdate,
     FileBreakdownRequest,
-    FileMetadata,
     MemberRoleUpdate,
 )
 from app.serialize import case_out
@@ -371,19 +370,6 @@ async def delete_file(
     f = _file_in(case, file_id)
     await session.delete(f)
     await session.commit()
-
-
-@router.post("/{case_id}/files/{file_id}/extract", response_model=FileMetadata)
-async def extract_metadata(
-    case_id: str,
-    file_id: str,
-    me: Member = Depends(require_member),
-    session: AsyncSession = Depends(get_session),
-) -> FileMetadata:
-    """ให้ AI อ่านไฟล์ที่อัปโหลดไว้แล้ว เสนอเลขที่/หน่วยงาน/กำหนดส่ง — ยังไม่บันทึก หน้าเว็บเอาไปเติมเอง"""
-    case = await _get_case(session, case_id, me)
-    f = _file_in(case, file_id)
-    return await ai.extract_metadata(f.filename, f.content_type, f.data)
 
 
 @router.post("/{case_id}/files/{file_id}/breakdown", response_model=BreakdownResult)

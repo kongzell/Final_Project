@@ -137,15 +137,6 @@
   font-size: 13.5px;
 }
 .field select:focus, .case-project-pick:focus { outline: none; border-color: var(--accent); }
-.ws-note {
-  margin: 0 0 12px;
-  padding: 8px 11px;
-  border-left: 3px solid var(--accent);
-  border-radius: 0 8px 8px 0;
-  background: var(--accent-soft);
-  font-size: 13px;
-  color: var(--text);
-}
 
 .file-card {
   display: flex;

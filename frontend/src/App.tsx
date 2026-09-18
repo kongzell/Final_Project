@@ -332,22 +332,6 @@ export default function App() {
       if (!file.projectId) return
       setAiFile({ caseId: c.id, fileId: file.id, filename: file.filename, caseTitle: file.title, projectId: file.projectId })
     },
-    onExtract: async (c: Case, file: Case["files"][number]) => {
-      const meta = await api.extractFileMetadata(c.id, file.id)
-      const patch: api.CaseFilePatch = {}
-      const defaultTitle = file.filename.replace(/\.[^.]+$/, "")
-      if (file.title === defaultTitle && meta.title) patch.title = meta.title
-      if (!file.docNumber && meta.docNumber) patch.docNumber = meta.docNumber
-      if (!file.agency && meta.agency) patch.agency = meta.agency
-      if (!file.deadline && meta.deadline) patch.deadline = meta.deadline
-      const filled = Object.keys(patch)
-      if (filled.length > 0) {
-        await api.updateCaseFile(c.id, file.id, patch)
-        await refreshCases()
-      }
-      const what = filled.length > 0 ? `filled ${filled.join(", ")}` : "nothing to fill — the details were already set"
-      return `AI read ${file.filename}: ${what}.${meta.summary ? ` ${meta.summary}` : ""}`
-    },
     onRequest: async (id: string, input: api.NewDocumentRequest) => {
       await api.createDocumentRequest(id, input)
       await refreshCases()

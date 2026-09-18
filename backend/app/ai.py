@@ -15,7 +15,7 @@ from fastapi import HTTPException
 from datetime import datetime
 
 from app.config import LOCAL_TZ, get_settings
-from app.schemas import BreakdownResult, FileMetadata, SubtaskSuggestion
+from app.schemas import BreakdownResult, SubtaskSuggestion
 
 log = logging.getLogger("ai")
 
@@ -349,83 +349,6 @@ async def breakdown(
         raise HTTPException(502, f"Could not read the Gemini response: {exc}") from exc
 
     return BreakdownResult.model_validate({**data, "mock": False})
-
-
-# ---------- อ่าน metadata ของเอกสารตอนอัปโหลด ----------
-
-METADATA_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "title": {"type": "string"},
-        "docNumber": {"type": "string"},
-        "agency": {"type": "string"},
-        "deadline": {"type": "string"},
-        "category": {"type": "string", "enum": ["tor", "contract", "amendment", "minutes", "acceptance", "other"]},
-        "summary": {"type": "string"},
-    },
-    "required": ["title", "docNumber", "agency", "deadline", "category", "summary"],
-}
-
-METADATA_PROMPT = """Read the attached document and fill in these fields. Answer in the document's own
-language (Thai document, Thai answer) except category which is a fixed English value.
-Today is {today}.
-
-- title: a short name for this matter, the way a clerk would label the folder — the subject
-  line ("เรื่อง") if the document has one, otherwise a 5-10 word summary of what it is about
-- docNumber: the official reference number (เลขที่หนังสือ / เลขที่สัญญา / Ref. No.), exactly
-  as printed. Empty string if there is none
-- agency: the organisation that issued or sent the document. Empty string if unclear
-- deadline: the single most important delivery or response date as YYYY-MM-DD — final
-  delivery for a TOR or contract, reply-by date for a letter. Turn "within 30 days" into a
-  date counted from today. Empty string if the document gives no date; never invent one
-- category: tor (terms of reference / scope of work), contract (สัญญา), amendment (a revision
-  of an earlier document), minutes (meeting minutes / รายงานการประชุม), acceptance (inspection
-  or acceptance report / ใบตรวจรับ), other
-- summary: 1-2 sentences on what the document asks for or records"""
-
-
-async def extract_metadata(filename: str, content_type: str, data: bytes) -> FileMetadata:
-    """ให้ AI อ่านเอกสารแล้วเสนอชื่อเรื่อง เลขที่ หน่วยงาน กำหนดส่ง หมวด — ไว้เติมฟอร์ม
-
-    ใช้ 1 คำขอต่อไฟล์ เป็น opt-in จากปุ่มบนฟอร์ม ไม่ยิงอัตโนมัติทุกครั้งที่อัปโหลด
-    เพราะกินโควตาและเนื้อหาออกไปนอกระบบ
-    """
-    settings = get_settings()
-    if not settings.gemini_api_key:
-        raise HTTPException(503, "GEMINI_API_KEY is not set")
-    if content_type not in READABLE_TYPES:
-        raise HTTPException(415, "AI can read PDF, images and plain text — export Word/Excel files to PDF first")
-
-    payload = {
-        "contents": [{"parts": [
-            {"inline_data": {"mime_type": content_type, "data": base64.b64encode(data).decode()}},
-            {"text": METADATA_PROMPT.format(today=datetime.now(LOCAL_TZ).date().isoformat())},
-        ]}],
-        "generationConfig": {
-            "responseMimeType": "application/json",
-            "responseSchema": METADATA_SCHEMA,
-            "temperature": 0.2,
-        },
-    }
-    try:
-        async with httpx.AsyncClient(timeout=120) as client:
-            res = await client.post(
-                ENDPOINT.format(model=settings.gemini_model),
-                json=payload,
-                headers={"x-goog-api-key": settings.gemini_api_key},
-            )
-    except httpx.HTTPError as exc:
-        raise HTTPException(502, f"Could not reach Gemini ({type(exc).__name__}): {exc}") from exc
-
-    if res.status_code != 200:
-        log.warning("Gemini ตอบ %s (metadata %s): %s", res.status_code, filename, res.text[:200])
-        raise HTTPException(502, _explain(res.status_code, res.text))
-
-    try:
-        text = res.json()["candidates"][0]["content"]["parts"][0]["text"]
-        return FileMetadata.model_validate(json.loads(text))
-    except (KeyError, IndexError, ValueError) as exc:
-        raise HTTPException(502, f"Could not read the Gemini response: {exc}") from exc
 
 
 # ---------- จับคู่ commit กับการ์ด ----------

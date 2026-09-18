@@ -384,29 +384,7 @@ class SubtaskSuggestion(ApiModel):
     depends_on: list[int] = Field(default_factory=list)
 
 
-class FileMetadata(ApiModel):
-    """สิ่งที่ AI อ่านได้จากหน้าแรก ๆ ของเอกสาร — ไว้เติมฟอร์มให้ ผู้ใช้แก้ก่อนบันทึกได้"""
 
-    title: str = ""
-    doc_number: str = ""
-    agency: str = ""
-    #: YYYY-MM-DD หรือว่าง
-    deadline: str = ""
-    category: FileCategory = "other"
-    #: สรุป 1-2 ประโยคว่าเอกสารนี้เกี่ยวกับอะไร
-    summary: str = ""
-
-    @field_validator("deadline")
-    @classmethod
-    def _valid_deadline(cls, v: str) -> str:
-        v = (v or "").strip()
-        if not v:
-            return ""
-        try:
-            date.fromisoformat(v)
-        except ValueError:
-            return ""
-        return v
 
 
 class BreakdownResult(ApiModel):

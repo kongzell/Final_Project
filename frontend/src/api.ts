@@ -226,23 +226,6 @@ export const caseFileUrl = (caseId: string, fileId: string) =>
   `/api/cases/${caseId}/files/${fileId}`
 
 /** สิ่งที่ AI อ่านได้จากเอกสาร — ไว้เติมฟอร์มเพิ่มเอกสาร ผู้ใช้แก้ก่อนบันทึกได้ */
-export type FileMetadata = {
-  title: string
-  docNumber: string
-  agency: string
-  /** YYYY-MM-DD หรือว่าง */
-  deadline: string
-  category: FileCategory
-  summary: string
-}
-
-/** ให้ AI อ่านไฟล์ที่อัปโหลดไว้แล้ว — ยังไม่บันทึกอะไร (1 คำขอ Gemini) */
-export async function extractFileMetadata(caseId: string, fileId: string): Promise<FileMetadata> {
-  const res = await fetch(`/api/cases/${caseId}/files/${fileId}/extract`, { method: "POST" })
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
-  return res.json()
-}
-
 /** ให้ AI อ่านไฟล์แล้วเสนอการ์ดงาน — ผลลัพธ์รูปแบบเดียวกับแตกจากข้อความ */
 export async function breakdownFile(
   caseId: string,

@@ -42,8 +42,6 @@ type DocumentActions = {
   onDeleteFile: (id: string, fileId: string) => Promise<void>
   onManageMembers: (id: string) => void
   onBreakdown: (c: Case, file: CaseFile) => void
-  /** ให้ AI อ่านไฟล์แล้วเติมเรื่อง/เลขที่/หน่วยงาน/กำหนดส่งที่ยังว่างของใบนั้น — คืนข้อความบอกว่าเติมอะไร */
-  onExtract: (c: Case, file: CaseFile) => Promise<string>
   /** ขอเอกสารข้ามที่เก็บ */
   onRequest: (id: string, input: NewDocumentRequest) => Promise<void>
   onFulfill: (id: string, requestId: string, fileId: string) => Promise<void>
@@ -139,7 +137,7 @@ type StatusFilter = CaseStatus | "all" | "open"
 
 function Workspace({
   c, projects, members, directory, currentMemberId,
-  onUpdate, onAddFile, onUpdateFile, onDeleteFile, onBreakdown, onExtract,
+  onUpdate, onAddFile, onUpdateFile, onDeleteFile, onBreakdown,
   onRequest, onFulfill, onFulfillUpload, onDecline, onCancelRequest,
 }: WorkspaceProps) {
   const isOwner = currentMemberId !== null && c.ownerId === currentMemberId
@@ -153,8 +151,6 @@ function Workspace({
     p !== null && currentMemberId !== null && (p.ownerId === currentMemberId || p.adminIds.includes(currentMemberId))
 
   const [error, setError] = useState<string | null>(null)
-  const [note, setNote] = useState<string | null>(null)
-  const [extracting, setExtracting] = useState<string | null>(null)
   const [renaming, setRenaming] = useState(false)
   const [title, setTitle] = useState("")
   const [adding, setAdding] = useState(false)
@@ -216,17 +212,11 @@ function Workspace({
     canEdit: canEdit(f),
     canDelete: isOwner,
     canBreakdown: canBreakdownIn(projectOf(f)),
-    extracting: extracting === f.id,
     onStatus: (s) => void run(() => onUpdateFile(c.id, f.id, { status: s })),
     onEdit: () => setEditing(f),
     onVersion: () => { setReplacing(f); fileInput.current?.click() },
     onDelete: () => { if (window.confirm(`Delete "${f.title}" (${f.filename})?`)) void run(() => onDeleteFile(c.id, f.id)) },
     onBreakdown: () => onBreakdown(c, f),
-    onExtract: () => {
-      setExtracting(f.id)
-      setNote(null)
-      void run(async () => setNote(await onExtract(c, f))).finally(() => setExtracting(null))
-    },
   })
   const card = (f: CaseFile) => <DocCard key={f.id} {...actionsFor(f)} />
 
@@ -339,7 +329,6 @@ function Workspace({
       )}
 
       {error && <p className="modal-error">{error}</p>}
-      {note && <p className="ws-note">{note}</p>}
 
       {files.length === 0 && !hasRequests ? (
         <div className="docs-empty">
@@ -473,18 +462,16 @@ type DocActions = {
   canEdit: boolean
   canDelete: boolean
   canBreakdown: boolean
-  extracting: boolean
   onStatus: (s: CaseStatus) => void
   onEdit: () => void
   onVersion: () => void
   onDelete: () => void
   onBreakdown: () => void
-  onExtract: () => void
 }
 
 function DocCard({
-  f, project, older, uploader, caseId, canEdit, canDelete, canBreakdown, extracting,
-  onStatus, onEdit, onVersion, onDelete, onBreakdown, onExtract,
+  f, project, older, uploader, caseId, canEdit, canDelete, canBreakdown,
+  onStatus, onEdit, onVersion, onDelete, onBreakdown,
 }: DocActions) {
   const status = CASE_STATUSES.find((s) => s.id === f.status)
   const late = isLate(f)
@@ -562,20 +549,7 @@ function DocCard({
         >
           <IconSparkle size={13} /> Create task cards
         </button>
-        {canEdit && (
-          <>
-            <button
-              type="button"
-              className="member-action"
-              title={readable ? "AI reads subject, doc number, agency and deadline from this file (fills only empty fields · 1 Gemini request)" : "AI can read PDF, images and text only"}
-              disabled={!readable || extracting}
-              onClick={onExtract}
-            >
-              {extracting ? "Reading..." : "Fill details"}
-            </button>
-            <button type="button" className="member-action" onClick={onEdit}>Edit</button>
-          </>
-        )}
+        {canEdit && <button type="button" className="member-action" onClick={onEdit}>Edit</button>}
         <a className="member-action" href={caseFileUrl(caseId, f.id)} download={f.filename} title="Download">
           <IconDownload size={14} />
         </a>
@@ -656,8 +630,8 @@ function ProjectCard({ project, rows, pending, spaceName, canCancel, onCancel, o
 
 /** แถวเอกสาร 1 ใบในการ์ดโปรเจค — ข้อมูลย่อ + เมนู ⋯ แทนปุ่มเรียงแถวของการ์ดเต็ม */
 function DocRow({
-  f, caseId, canEdit, canDelete, canBreakdown, extracting,
-  onStatus, onEdit, onVersion, onDelete, onBreakdown, onExtract,
+  f, caseId, canEdit, canDelete, canBreakdown,
+  onStatus, onEdit, onVersion, onDelete, onBreakdown,
 }: DocActions) {
   const status = CASE_STATUSES.find((s) => s.id === f.status)
   const late = isLate(f)
@@ -704,9 +678,6 @@ function DocRow({
                 <MenuLabel>
                   {!readable ? "AI reads PDF, images and text only" : "Only the project owner/admin can create task cards"}
                 </MenuLabel>
-              )}
-              {canEdit && readable && (
-                <MenuItem onClick={() => { close(); onExtract() }}>{extracting ? "Reading..." : "Fill details with AI"}</MenuItem>
               )}
               {canEdit && <MenuItem onClick={() => { close(); onEdit() }}>Edit details</MenuItem>}
               <MenuItem onClick={() => { close(); window.open(caseFileUrl(caseId, f.id), "_blank") }}>
