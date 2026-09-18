@@ -158,7 +158,6 @@ export function DocumentFileModal({
             <input
               autoFocus={!!editing}
               className="field-input"
-              placeholder={titleHint || "e.g. จ้างพัฒนาระบบจองห้องประชุม"}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && void submit()}
@@ -190,7 +189,7 @@ export function DocumentFileModal({
           <div className="field-grid">
             <label className="field">
               <span className="field-label">Doc number (optional)</span>
-              <input className="field-input" placeholder="สธ 0201/1234" value={docNumber} onChange={(e) => setDocNumber(e.target.value)} />
+              <input className="field-input" placeholder="01/1234" value={docNumber} onChange={(e) => setDocNumber(e.target.value)} />
             </label>
             {editing ? (
               <label className="field">

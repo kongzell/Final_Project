@@ -64,7 +64,6 @@ export function NewDocumentModal({ onClose, onCreate }: Props) {
             <input
               autoFocus
               className="field-input"
-              placeholder="e.g. เอกสารเข้า ฝ่ายไอที"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && void submit()}
