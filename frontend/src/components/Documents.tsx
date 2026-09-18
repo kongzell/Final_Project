@@ -138,7 +138,8 @@ type StatusFilter = CaseStatus | "all" | "open"
 
 function Workspace({
   c, projects, members, directory, currentMemberId,
-  onUpdate, onAddFile, onUpdateFile, onDeleteFile, onBreakdown, onExtract, onRequest,
+  onUpdate, onAddFile, onUpdateFile, onDeleteFile, onBreakdown, onExtract,
+  onRequest, onFulfill, onFulfillUpload, onDecline, onCancelRequest,
 }: WorkspaceProps) {
   const isOwner = currentMemberId !== null && c.ownerId === currentMemberId
   const canManage = isOwner || (currentMemberId !== null && c.adminIds.includes(currentMemberId))
@@ -162,6 +163,11 @@ function Workspace({
   const [replacing, setReplacing] = useState<CaseFile | null>(null)
   const [query, setQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all")
+  // กระดาน = คอลัมน์ Requests + คอลัมน์ละประเภทเอกสาร (หรือละโปรเจค) — รายการ = การ์ดเรียงเฉย ๆ
+  const [layout, setLayout] = useState<"board" | "list">("board")
+  const [groupBy, setGroupBy] = useState<"category" | "project">("category")
+  /** คำขอที่กำลังตอบด้วยการอัปโหลดไฟล์ใหม่ */
+  const [uploadFor, setUploadFor] = useState<DocumentRequest | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const startRename = () => { setTitle(c.title); setRenaming(true) }
 
@@ -199,6 +205,59 @@ function Workspace({
     open: files.filter(isOpen).length,
     late: files.filter(isLate).length,
   }
+
+  const projectOf = (f: CaseFile) => projects.find((p) => p.id === f.projectId) ?? null
+  const card = (f: CaseFile) => (
+    <DocCard
+      key={f.id}
+      f={f}
+      project={projectOf(f)}
+      older={history(f)}
+      uploader={uploader(f.uploadedBy)}
+      caseId={c.id}
+      canEdit={canEdit(f)}
+      canDelete={isOwner}
+      canBreakdown={canBreakdownIn(projectOf(f))}
+      extracting={extracting === f.id}
+      onStatus={(s) => void run(() => onUpdateFile(c.id, f.id, { status: s }))}
+      onEdit={() => setEditing(f)}
+      onVersion={() => { setReplacing(f); fileInput.current?.click() }}
+      onDelete={() => { if (window.confirm(`Delete "${f.title}" (${f.filename})?`)) void run(() => onDeleteFile(c.id, f.id)) }}
+      onBreakdown={() => onBreakdown(c, f)}
+      onExtract={() => {
+        setExtracting(f.id)
+        setNote(null)
+        void run(async () => setNote(await onExtract(c, f))).finally(() => setExtracting(null))
+      }}
+    />
+  )
+
+  // คอลัมน์ของกระดาน — โชว์เฉพาะกลุ่มที่มีเอกสาร (6 ประเภทว่าง ๆ เรียงกันรกเปล่า ๆ)
+  type Group = { key: string; label: string; hint?: string; files: CaseFile[] }
+  const groups: Group[] = groupBy === "category"
+    ? FILE_CATEGORIES.map((k) => ({ key: k.id, label: k.label, files: shown.filter((f) => f.category === k.id) }))
+    : [
+        ...projects.map((p) => ({ key: p.id, label: p.name, hint: p.githubRepo ?? undefined, files: shown.filter((f) => f.projectId === p.id) })),
+        { key: "none", label: "No project", files: shown.filter((f) => !f.projectId || !projects.some((p) => p.id === f.projectId)) },
+      ]
+  const columns = groups.filter((g) => g.files.length > 0)
+  const hasRequests = c.requestsIn.some((r) => r.status === "pending") || c.requestsOut.length > 0
+
+  const requestColumn = (
+    <RequestColumn
+      c={c}
+      files={files}
+      members={members}
+      directory={directory}
+      currentMemberId={currentMemberId}
+      canManage={canManage}
+      onNew={() => setRequesting(true)}
+      onFulfill={(rid, fid) => void run(() => onFulfill(c.id, rid, fid))}
+      onUpload={(r) => setUploadFor(r)}
+      onDecline={(rid, reply) => void run(() => onDecline(c.id, rid, reply))}
+      onCancel={(rid) => void run(() => onCancelRequest(c.id, rid))}
+    />
+  )
 
   /** ฉบับใหม่ของใบเดิม — ไม่ต้องกรอกอะไร API สืบทอดเรื่อง/โปรเจคให้ */
   const pickVersion = (f: File | null) => {
@@ -240,14 +299,9 @@ function Workspace({
           </p>
         </div>
 
-        <div className="ws-add">
-          <button type="button" className="btn" onClick={() => setRequesting(true)} title="Ask another team for a document">
-            Request document
-          </button>
-          <button type="button" className="btn btn-primary" onClick={() => setAdding(true)}>
-            <IconPlus size={14} /> Add document
-          </button>
-        </div>
+        <button type="button" className="btn btn-primary" onClick={() => setAdding(true)}>
+          <IconPlus size={14} /> Add document
+        </button>
         <input
           ref={fileInput}
           type="file"
@@ -257,8 +311,18 @@ function Workspace({
         />
       </div>
 
-      {files.length > 0 && (
+      {(files.length > 0 || hasRequests) && (
         <div className="ws-filters">
+          <div className="ws-seg" role="group" aria-label="Layout">
+            <button type="button" className={"ws-seg-btn" + (layout === "board" ? " is-on" : "")} onClick={() => setLayout("board")}>Board</button>
+            <button type="button" className={"ws-seg-btn" + (layout === "list" ? " is-on" : "")} onClick={() => setLayout("list")}>List</button>
+          </div>
+          {layout === "board" && (
+            <div className="ws-seg" role="group" aria-label="Group by">
+              <button type="button" className={"ws-seg-btn" + (groupBy === "category" ? " is-on" : "")} onClick={() => setGroupBy("category")}>By type</button>
+              <button type="button" className={"ws-seg-btn" + (groupBy === "project" ? " is-on" : "")} onClick={() => setGroupBy("project")}>By project</button>
+            </div>
+          )}
           <div className="ws-chips">
             {([["all", "All"], ["open", "Open"], ...CASE_STATUSES.map((s) => [s.id, s.label])] as [StatusFilter, string][]).map(([id, label]) => (
               <button
@@ -283,44 +347,42 @@ function Workspace({
       {error && <p className="modal-error">{error}</p>}
       {note && <p className="ws-note">{note}</p>}
 
-      {files.length === 0 ? (
+      {files.length === 0 && !hasRequests ? (
         <div className="docs-empty">
           <IconFile size={36} />
           <h3>Nothing here yet</h3>
-          <p>Send the first document in — a TOR, a letter, a contract, minutes. Each one keeps its own subject, number, deadline and status.</p>
-          <button type="button" className="btn btn-primary" onClick={() => setAdding(true)}>
-            <IconPlus size={14} /> Add document
-          </button>
+          <p>Send the first document in — a TOR, a letter, a contract, minutes. Each one keeps its own subject, number, deadline and status. Or ask another team for one.</p>
+          <div className="ws-add">
+            <button type="button" className="btn" onClick={() => setRequesting(true)}>Request document</button>
+            <button type="button" className="btn btn-primary" onClick={() => setAdding(true)}>
+              <IconPlus size={14} /> Add document
+            </button>
+          </div>
         </div>
-      ) : shown.length === 0 ? (
-        <p className="ws-nomatch">No documents match this filter.</p>
-      ) : (
-        <div className="docs-grid">
-          {shown.map((f) => (
-            <DocCard
-              key={f.id}
-              f={f}
-              project={projects.find((p) => p.id === f.projectId) ?? null}
-              older={history(f)}
-              uploader={uploader(f.uploadedBy)}
-              caseId={c.id}
-              canEdit={canEdit(f)}
-              canDelete={isOwner}
-              canBreakdown={canBreakdownIn(projects.find((p) => p.id === f.projectId) ?? null)}
-              extracting={extracting === f.id}
-              onStatus={(s) => void run(() => onUpdateFile(c.id, f.id, { status: s }))}
-              onEdit={() => setEditing(f)}
-              onVersion={() => { setReplacing(f); fileInput.current?.click() }}
-              onDelete={() => { if (window.confirm(`Delete "${f.title}" (${f.filename})?`)) void run(() => onDeleteFile(c.id, f.id)) }}
-              onBreakdown={() => onBreakdown(c, f)}
-              onExtract={() => {
-                setExtracting(f.id)
-                setNote(null)
-                void run(async () => setNote(await onExtract(c, f))).finally(() => setExtracting(null))
-              }}
-            />
+      ) : layout === "board" ? (
+        <div className="doc-board">
+          {requestColumn}
+          {columns.map((g) => (
+            <section key={g.key} className="doc-col">
+              <header className="doc-col-head">
+                <span className="doc-col-name">{g.label}</span>
+                {g.hint && <span className="doc-col-hint">{g.hint}</span>}
+                <span className="doc-col-count">{g.files.length}</span>
+              </header>
+              {g.files.map(card)}
+            </section>
           ))}
+          {columns.length === 0 && files.length > 0 && <p className="ws-nomatch doc-col-none">No documents match this filter.</p>}
         </div>
+      ) : (
+        <>
+          {hasRequests && <div className="doc-board is-strip">{requestColumn}</div>}
+          {shown.length === 0 ? (
+            <p className="ws-nomatch">No documents match this filter.</p>
+          ) : (
+            <div className="docs-grid">{shown.map(card)}</div>
+          )}
+        </>
       )}
 
       {adding && (
@@ -335,8 +397,19 @@ function Workspace({
         <RequestDocumentModal
           fromCaseId={c.id}
           directory={directory}
+          members={members}
           onClose={() => setRequesting(false)}
           onSubmit={(input) => onRequest(c.id, input)}
+        />
+      )}
+      {uploadFor && (
+        <DocumentFileModal
+          linkable={linkable}
+          defaultTitle={uploadFor.title}
+          submitLabel="Upload & send"
+          onClose={() => setUploadFor(null)}
+          onSubmit={(input) => onFulfillUpload(c.id, uploadFor.id, input)}
+          onSave={async () => {}}
         />
       )}
       {editing && (
@@ -488,63 +561,23 @@ function DocCard({
 type PanelProps = {
   c: Case
   members: Member[]
-  directory: CaseDirectoryEntry[]
-  projects: Project[]
   currentMemberId: string | null
   onDelete: (id: string) => Promise<void>
   onManageMembers: (id: string) => void
-  onFulfill: (id: string, requestId: string, fileId: string) => Promise<void>
-  onFulfillUpload: (id: string, requestId: string, input: NewCaseFile) => Promise<void>
-  onDecline: (id: string, requestId: string, reply: string) => Promise<void>
-  onCancelRequest: (id: string, requestId: string) => Promise<void>
   onClose: () => void
 }
 
-export function DocumentPanel({
-  c, members, directory, projects, currentMemberId,
-  onDelete, onManageMembers, onFulfill, onFulfillUpload, onDecline, onCancelRequest, onClose,
-}: PanelProps) {
+export function DocumentPanel({ c, members, currentMemberId, onDelete, onManageMembers, onClose }: PanelProps) {
   const isOwner = currentMemberId !== null && c.ownerId === currentMemberId
   const canManage = isOwner || (currentMemberId !== null && c.adminIds.includes(currentMemberId))
   const people = members.filter((m) => c.memberIds.includes(m.id))
   const files = currentFiles(c)
   const [error, setError] = useState<string | null>(null)
-  /** คำขอที่กำลังตอบด้วยการอัปโหลดไฟล์ใหม่ */
-  const [uploadFor, setUploadFor] = useState<DocumentRequest | null>(null)
-  const linkable = projects.filter(
-    (p) => currentMemberId !== null && (p.ownerId === currentMemberId || p.adminIds.includes(currentMemberId)),
-  )
   const byStatus = CASE_STATUSES.map((s) => ({ ...s, n: files.filter((f) => f.status === s.id).length }))
-  const run = async (fn: () => Promise<void>) => {
-    setError(null)
-    try { await fn() } catch (e) { setError(e instanceof Error ? e.message : "Something went wrong") }
-  }
+  const pendingIn = c.requestsIn.filter((r) => r.status === "pending").length
 
   return (
     <aside className="rs">
-      <RequestsPanel
-        c={c}
-        files={files}
-        members={members}
-        directory={directory}
-        currentMemberId={currentMemberId}
-        canManage={canManage}
-        onFulfill={(rid, fid) => void run(() => onFulfill(c.id, rid, fid))}
-        onUpload={(r) => setUploadFor(r)}
-        onDecline={(rid, reply) => void run(() => onDecline(c.id, rid, reply))}
-        onCancel={(rid) => void run(() => onCancelRequest(c.id, rid))}
-      />
-      {uploadFor && (
-        <DocumentFileModal
-          linkable={linkable}
-          defaultTitle={uploadFor.title}
-          submitLabel="Upload & send"
-          onClose={() => setUploadFor(null)}
-          onSubmit={(input) => onFulfillUpload(c.id, uploadFor.id, input)}
-          onSave={async () => {}}
-        />
-      )}
-
       <section className="rs-panel">
         <header className="rs-head">
           <span className="rs-title">Overview</span>
@@ -557,6 +590,10 @@ export function DocumentPanel({
               <span className="ws-overview-n">{s.n}</span>
             </li>
           ))}
+          <li>
+            <span className="case-status" style={{ color: "var(--accent-text)" }}><span className="dot" style={{ background: "var(--accent)" }} />Requests to answer</span>
+            <span className="ws-overview-n">{pendingIn}</span>
+          </li>
         </ul>
       </section>
 
@@ -604,18 +641,19 @@ export function DocumentPanel({
   )
 }
 
-// ---------- คำขอเอกสารข้ามที่เก็บ (แผงขวา) ----------
+// ---------- คอลัมน์ Requests (คอลัมน์แรกของกระดาน) ----------
 
 const fmtWhen = (iso: string) =>
   new Date(iso).toLocaleDateString("th-TH", { day: "numeric", month: "short" })
 
-type RequestsPanelProps = {
+type RequestColumnProps = {
   c: Case
   files: CaseFile[]
   members: Member[]
   directory: CaseDirectoryEntry[]
   currentMemberId: string | null
   canManage: boolean
+  onNew: () => void
   onFulfill: (requestId: string, fileId: string) => void
   onUpload: (r: DocumentRequest) => void
   onDecline: (requestId: string, reply: string) => void
@@ -623,16 +661,15 @@ type RequestsPanelProps = {
 }
 
 /** คำขอเข้า (ทีมอื่นขอจากเรา — owner/admin เลือกไฟล์ส่ง) และคำขอออก (เราขอทีมอื่น — รอ/ได้แล้ว/ถูกปฏิเสธ)
- *  ไม่โชว์เลยถ้าไม่มีคำขอสักรายการ จะได้ไม่รกแผงของทีมที่ไม่ได้ใช้ */
-function RequestsPanel({
-  c, files, members, directory, currentMemberId, canManage, onFulfill, onUpload, onDecline, onCancel,
-}: RequestsPanelProps) {
+ *  อยู่เป็นคอลัมน์แรกของกระดานเสมอ — ปุ่มขอเอกสารอยู่ท้ายคอลัมน์ */
+function RequestColumn({
+  c, files, members, directory, currentMemberId, canManage, onNew, onFulfill, onUpload, onDecline, onCancel,
+}: RequestColumnProps) {
   const [pick, setPick] = useState<Record<string, string>>({})
-  const spaceName = (id: string) => directory.find((d) => d.id === id)?.title ?? "another team"
+  const spaceName = (id: string) => id === c.id ? "this team" : directory.find((d) => d.id === id)?.title ?? "another team"
   const who = (id: string | null) => members.find((m) => m.id === id)?.name ?? "—"
   const incoming = c.requestsIn.filter((r) => r.status === "pending")
   const outgoing = c.requestsOut
-  if (incoming.length === 0 && outgoing.length === 0) return null
 
   const statusChip = (r: DocumentRequest) => (
     <span className={"req-status is-" + r.status}>
@@ -641,11 +678,16 @@ function RequestsPanel({
   )
 
   return (
-    <section className="rs-panel">
-      <header className="rs-head">
-        <span className="rs-title">Requests</span>
+    <section className="doc-col is-req">
+      <header className="doc-col-head">
+        <span className="doc-col-name">Requests</span>
         {incoming.length > 0 && <span className="rs-badge">{incoming.length} to answer</span>}
+        <span className="doc-col-count">{incoming.length + outgoing.length}</span>
       </header>
+
+      {incoming.length === 0 && outgoing.length === 0 && (
+        <p className="doc-col-empty">No requests yet — ask another team for a document you need.</p>
+      )}
 
       {incoming.length > 0 && (
         <ul className="req-list">
@@ -721,6 +763,10 @@ function RequestsPanel({
           </ul>
         </>
       )}
+
+      <button type="button" className="btn doc-col-btn" onClick={onNew}>
+        <IconPlus size={14} /> Request document
+      </button>
     </section>
   )
 }

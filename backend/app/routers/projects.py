@@ -23,13 +23,7 @@ router = APIRouter(prefix="/api/projects", tags=["projects"])
 
 
 def _prefix_from_repo(github_repo: str | None) -> str:
-    """รหัสย่อจากอักษรตัวแรกของแต่ละคำในชื่อ repo
-
-    kongzell/kongzell-s-test -> KST      kongzell/Follow-up -> FU
-
-    ชื่อ repo อย่าง "...3" ไม่มีตัวอักษรเลย พิมพ์ใน commit แล้วจับไม่ได้
-    เคสแบบนั้นตกมาใช้ TASK ซึ่งเจ้าของแก้เองได้ทีหลัง
-    """
+    """รหัสย่อจากอักษรตัวแรกของแต่ละคำในชื่อ repo"""
     if not github_repo:
         return "TASK"
     name = github_repo.split("/")[-1]

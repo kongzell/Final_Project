@@ -1,26 +1,32 @@
 import { useEffect, useState } from "react"
 import type { NewDocumentRequest } from "../api"
-import type { CaseDirectoryEntry } from "../types"
+import type { CaseDirectoryEntry, Member } from "../types"
 import { IconClose, IconFolder } from "./Icons"
 import "./Modal.css"
 import "./Documents.css"
 
 type Props = {
-  /** ที่เก็บที่ยื่นคำขอ — ตัดออกจากรายการปลายทาง */
+  /** ที่เก็บที่ยื่นคำขอ — ขึ้นบนสุดในชื่อ "This team" ขอจากทีมตัวเองก็ได้ */
   fromCaseId: string
   directory: CaseDirectoryEntry[]
+  /** ไว้แปลง ownerId → ชื่อเจ้าของ จะได้รู้ว่าพื้นที่นั้นเป็นทีมของใคร */
+  members: Member[]
   onClose: () => void
   onSubmit: (input: NewDocumentRequest) => Promise<void>
 }
 
-/** ขอเอกสารจากที่เก็บของทีมอื่น — เห็นแค่ชื่อทีม ไม่เห็นไฟล์ข้างใน ผู้ดูแลฝั่งนั้นเป็นคนเลือกส่ง */
-export function RequestDocumentModal({ fromCaseId, directory, onClose, onSubmit }: Props) {
-  const targets = directory.filter((d) => d.id !== fromCaseId)
+/** ขอเอกสารจากที่เก็บของทีมอื่น (หรือทีมตัวเอง) — เห็นแค่ชื่อทีมกับเจ้าของ ไม่เห็นไฟล์ข้างใน ผู้ดูแลฝั่งนั้นเป็นคนเลือกส่ง */
+export function RequestDocumentModal({ fromCaseId, directory, members, onClose, onSubmit }: Props) {
+  // ทีมตัวเองอยู่บนสุด ที่เหลือเรียงตามชื่อ
+  const targets = [...directory].sort((a, b) =>
+    Number(b.id === fromCaseId) - Number(a.id === fromCaseId) || a.title.localeCompare(b.title, "th"),
+  )
+  const ownerName = (id: string | null) => members.find((m) => m.id === id)?.name ?? null
   const [toCaseId, setToCaseId] = useState("")
   const [query, setQuery] = useState("")
-  // ทีมในองค์กรมีได้หลายสิบ dropdown ธรรมดาเลื่อนหายาก — พิมพ์ค้นแล้วเลือกจากรายการที่กรองแทน
+  // ทีมในองค์กรมีได้หลายสิบ dropdown ธรรมดาเลื่อนหายาก — พิมพ์ค้นแล้วเลือกจากรายการที่กรองแทน (ค้นจากชื่อเจ้าของได้ด้วย)
   const q = query.trim().toLowerCase()
-  const shown = targets.filter((d) => !q || d.title.toLowerCase().includes(q))
+  const shown = targets.filter((d) => !q || d.title.toLowerCase().includes(q) || (ownerName(d.ownerId) ?? "").toLowerCase().includes(q))
   const chosen = targets.find((d) => d.id === toCaseId) ?? null
   const [title, setTitle] = useState("")
   const [note, setNote] = useState("")
@@ -55,7 +61,7 @@ export function RequestDocumentModal({ fromCaseId, directory, onClose, onSubmit 
         <header className="modal-head">
           <div>
             <h2 className="modal-title"><IconFolder size={16} /> Request a document</h2>
-            <p className="modal-sub">Ask another team for a document. Their owner or admin picks the file and it lands here.</p>
+            <p className="modal-sub">Ask a team for a document — another team, or your own to have a teammate upload it. Their owner or admin picks the file and it lands here.</p>
           </div>
           <button type="button" className="modal-close" onClick={onClose} title="Close">
             <IconClose size={16} />
@@ -72,7 +78,7 @@ export function RequestDocumentModal({ fromCaseId, directory, onClose, onSubmit 
                 <input
                   autoFocus
                   className="field-input"
-                  placeholder="Type to search teams…"
+                  placeholder="Search by team or owner name…"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                 />
@@ -87,15 +93,29 @@ export function RequestDocumentModal({ fromCaseId, directory, onClose, onSubmit 
                         className={"team-pick-row" + (d.id === toCaseId ? " is-on" : "")}
                         onClick={() => setToCaseId(d.id)}
                       >
-                        <span className="team-pick-name">{d.title}</span>
+                        <span className="team-pick-main">
+                          <span className="team-pick-name">
+                            {d.title}
+                            {d.id === fromCaseId && <span className="team-pick-tag">This team</span>}
+                          </span>
+                          <span className="team-pick-owner">
+                            {ownerName(d.ownerId) ? `Owner: ${ownerName(d.ownerId)}` : "No owner"}
+                          </span>
+                        </span>
                         <span className="team-pick-meta">
-                          {d.memberCount} member{d.memberCount === 1 ? "" : "s"}{d.isMember ? " · you are in it" : ""}
+                          {d.memberCount} member{d.memberCount === 1 ? "" : "s"}{d.isMember && d.id !== fromCaseId ? " · you are in it" : ""}
                         </span>
                       </button>
                     </li>
                   ))}
                 </ul>
-                <span className="field-hint">{chosen ? <>Sending to <strong>{chosen.title}</strong></> : "Pick a team from the list"}</span>
+                <span className="field-hint">
+                  {chosen
+                    ? chosen.id === fromCaseId
+                      ? <>Asking <strong>your own team</strong> — the owner or an admin will upload or pick the file</>
+                      : <>Sending to <strong>{chosen.title}</strong>{ownerName(chosen.ownerId) ? ` (${ownerName(chosen.ownerId)})` : ""}</>
+                    : ""}
+                </span>
               </>
             )}
           </div>
@@ -104,7 +124,6 @@ export function RequestDocumentModal({ fromCaseId, directory, onClose, onSubmit 
             <span className="field-label">Which document</span>
             <input
               className="field-input"
-              placeholder="e.g. สัญญาจ้างระบบจองห้อง ฉบับลงนาม"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && void submit()}

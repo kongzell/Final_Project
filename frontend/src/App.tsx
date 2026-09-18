@@ -529,15 +529,9 @@ export default function App() {
             key={activeCaseView.id}
             c={activeCaseView}
             members={allMembers}
-            directory={directory}
-            projects={projects}
             currentMemberId={me}
             onDelete={caseActions.onDelete}
             onManageMembers={caseActions.onManageMembers}
-            onFulfill={caseActions.onFulfill}
-            onFulfillUpload={caseActions.onFulfillUpload}
-            onDecline={caseActions.onDecline}
-            onCancelRequest={caseActions.onCancelRequest}
             onClose={() => setActiveCaseId(null)}
           />
         </div>

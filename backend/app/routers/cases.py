@@ -420,11 +420,10 @@ async def create_request(
 ) -> CaseOut:
     """สมาชิกของที่เก็บ A ขอเอกสารจากที่เก็บ B — ไม่ต้องเป็นสมาชิกของ B
 
+    ขอจากทีมตัวเอง (B = A) ก็ได้ — ใช้เป็นการฝากให้เพื่อนร่วมทีม/ผู้ดูแลอัปโหลดเอกสารที่ยังไม่มี
     แจ้งเจ้าของ/admin ของ B ทางอีเมล ผลลัพธ์กลับมาเป็น A (มี requests_out ใหม่)
     """
     case = await _get_case(session, case_id, me)
-    if payload.to_case_id == case_id:
-        raise HTTPException(400, "Pick a different document space to request from")
     target = await session.get(Case, payload.to_case_id)
     if target is None:
         raise HTTPException(404, f"Document {payload.to_case_id} not found")
@@ -461,6 +460,7 @@ async def fulfill_request(
     """ผู้ดูแลของที่เก็บที่ถูกขอ เลือกไฟล์ของตัวเองส่งให้ — คัดลอกเป็นแถวใหม่ในที่เก็บผู้ขอ
 
     สำเนาไม่พ่วงโปรเจค (โปรเจคเป็นเรื่องของฝั่งผู้ให้) ผู้ขอค่อยผูกเองถ้าต้องการ
+    คำขอภายในทีมเดียวกันไม่ต้องคัดลอก — ชี้ไปไฟล์นั้นเลย ไม่งั้นได้ใบซ้ำในที่เก็บเดียว
     """
     case = await _get_managed_case(session, case_id, me)
     req = _request_in(case, request_id, incoming=True)
@@ -471,24 +471,28 @@ async def fulfill_request(
     if requester is None:
         raise HTTPException(404, "The requesting document space no longer exists")
 
-    copy = CaseFile(
-        case_id=requester.id,
-        title=src.title,
-        status="received",
-        doc_number=src.doc_number,
-        agency=src.agency or case.title,
-        deadline=src.deadline,
-        filename=src.filename,
-        content_type=src.content_type,
-        size=src.size,
-        category=src.category,
-        data=src.data,
-        uploaded_by=me.id,
-    )
-    session.add(copy)
-    await session.flush()
+    if requester.id == case.id:
+        delivered_id = src.id
+    else:
+        copy = CaseFile(
+            case_id=requester.id,
+            title=src.title,
+            status="received",
+            doc_number=src.doc_number,
+            agency=src.agency or case.title,
+            deadline=src.deadline,
+            filename=src.filename,
+            content_type=src.content_type,
+            size=src.size,
+            category=src.category,
+            data=src.data,
+            uploaded_by=me.id,
+        )
+        session.add(copy)
+        await session.flush()
+        delivered_id = copy.id
     req.status = "fulfilled"
-    req.file_id = copy.id
+    req.file_id = delivered_id
     req.resolved_by = me.id
     req.resolved_at = datetime.now(UTC)
     await session.commit()
