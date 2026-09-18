@@ -755,7 +755,6 @@ export function DocumentPanel({ c, members, currentMemberId, onDelete, onManageM
             <IconPlus size={14} /> Add member
           </button>
         )}
-        <p className="rs-fair">Everyone here can send documents in and see all of them. Admins can edit any document.</p>
       </section>
 
       {error && <p className="modal-error">{error}</p>}
