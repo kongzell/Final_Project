@@ -71,7 +71,6 @@ export function RequestDocumentModal({
         <header className="modal-head">
           <div>
             <h2 className="modal-title"><IconFolder size={16} /> Request a document</h2>
-            <p className="modal-sub">Ask a team for a document — another team, or your own to have a teammate upload it. Their owner or admin picks the file and it lands here.</p>
           </div>
           <button type="button" className="modal-close" onClick={onClose} title="Close">
             <IconClose size={16} />
