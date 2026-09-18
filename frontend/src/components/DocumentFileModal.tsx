@@ -43,7 +43,6 @@ export function DocumentFileModal({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
-  // ยังไม่ได้พิมพ์เรื่อง → ใช้ชื่อไฟล์ให้เห็นก่อน จะได้รู้ว่าถ้าไม่กรอกจะได้ชื่ออะไร
   const titleHint = file ? file.name.replace(/\.[^.]+$/, "") : ""
 
   useEffect(() => {
@@ -58,7 +57,6 @@ export function DocumentFileModal({
     setFile(f)
   }
 
-  // โปรเจคที่ผูกอยู่แต่ฉันไม่มีสิทธิ์แล้ว (เช่น คนอื่นผูกไว้) — โชว์ให้เห็นแต่เลือกอันอื่นไม่ได้นอกจากถอด
   const stuckProject = editing?.projectId && !linkable.some((p) => p.id === editing.projectId)
 
   const canSubmit = editing ? title.trim().length > 0 : file !== null && (!spaces || spaceId !== "")
@@ -158,6 +156,7 @@ export function DocumentFileModal({
             <input
               autoFocus={!!editing}
               className="field-input"
+              placeholder={titleHint || "e.g. จ้างพัฒนาระบบจองห้องประชุม"}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && void submit()}

@@ -17,6 +17,7 @@ import { Board } from "./components/Board"
 import type { DashboardTab } from "./components/Dashboard"
 import { Dashboard } from "./components/Dashboard"
 import { DocumentFileModal } from "./components/DocumentFileModal"
+import { RequestDocumentModal } from "./components/RequestDocumentModal"
 import { DocumentPanel, DocumentsView } from "./components/Documents"
 import { LoginScreen } from "./components/LoginScreen"
 import { RightSidebar } from "./components/RightSidebar"
@@ -51,8 +52,9 @@ export default function App() {
   const [view, setView] = useState<"board" | "documents">("board")
   const [cases, setCases] = useState<Case[]>([])
   const [directory, setDirectory] = useState<CaseDirectoryEntry[]>([])
-  /** modal ส่งเอกสารจากบอร์ด — ผูกโปรเจคที่เปิดอยู่ให้เลย */
+  /** modal ส่ง/ขอเอกสารจากบอร์ด — ผูกโปรเจคที่เปิดอยู่ให้เลย */
   const [boardDocOpen, setBoardDocOpen] = useState(false)
+  const [boardReqOpen, setBoardReqOpen] = useState(false)
   const [activeCaseId, setActiveCaseId] = useState<string | null>(null)
   const [docModalOpen, setDocModalOpen] = useState(false)
   /** id ของเรื่องที่กำลังจัดการสมาชิกอยู่ — null = ปิด */
@@ -118,7 +120,6 @@ export default function App() {
 
   const refreshCases = useCallback(async () => {
     try {
-      // สารบบที่เก็บโหลดคู่กัน — ใช้แปลง id → ชื่อทีมในแผงคำขอ และเลือกปลายทางตอนขอเอกสาร
       const [mine, all] = await Promise.all([api.getCases(), api.getCaseDirectory()])
       setCases(mine)
       setDirectory(all)
@@ -211,7 +212,6 @@ export default function App() {
       }
       setSelectedTaskId(parent.id)
       if (target.sourceFileId) {
-        // มีงานลงบอร์ดแล้วถือว่าเรื่องเริ่มดำเนินการ — ขยับให้เองเฉพาะตอนยังเป็น "รับเรื่อง"
         const c = cases.find((x) => x.files.some((f) => f.id === target.sourceFileId))
         const f = c?.files.find((x) => x.id === target.sourceFileId)
         if (c && f && f.status === "received") await api.updateCaseFile(c.id, f.id, { status: "in_progress" })
@@ -329,8 +329,6 @@ export default function App() {
       setAiFile({ caseId: c.id, fileId: file.id, filename: file.filename, caseTitle: file.title, projectId: file.projectId })
     },
     onExtract: async (c: Case, file: Case["files"][number]) => {
-      // เติมเฉพาะช่องที่ยังว่าง — ค่าที่คนพิมพ์ไว้แล้วถือว่าถูกกว่าที่ AI เดา
-      // เรื่องนับว่า "ว่าง" ถ้ายังเป็นชื่อไฟล์ตั้งต้นอยู่
       const meta = await api.extractFileMetadata(c.id, file.id)
       const patch: api.CaseFilePatch = {}
       const defaultTitle = file.filename.replace(/\.[^.]+$/, "")
@@ -355,7 +353,6 @@ export default function App() {
       await refreshCases()
     },
     onFulfillUpload: async (id: string, requestId: string, input: api.NewCaseFile) => {
-      // อัปโหลดก่อนแล้วหาไฟล์ที่เพิ่งเพิ่ม (id ที่ไม่เคยมี) ค่อยเอาไปตอบคำขอ — API ตอบกลับทั้ง Document
       const before = new Set(cases.find((c) => c.id === id)?.files.map((f) => f.id) ?? [])
       const updated = await api.addCaseFile(id, input)
       const added = updated.files.find((f) => !before.has(f.id))
@@ -556,6 +553,7 @@ export default function App() {
           canManage={canManage}
           cases={cases}
           onAddDocument={() => setBoardDocOpen(true)}
+          onRequestDocument={() => setBoardReqOpen(true)}
           onOpenDocument={(id) => { setView("documents"); setActiveCaseId(id) }}
         />
       </div>
@@ -643,6 +641,18 @@ export default function App() {
           onClose={() => setBoardDocOpen(false)}
           onSubmit={(input, spaceId) => caseActions.onAddFile(spaceId, input)}
           onSave={async () => {}}
+        />
+      )}
+
+      {boardReqOpen && project && (
+        <RequestDocumentModal
+          directory={directory}
+          members={allMembers}
+          spaces={cases}
+          defaultSpaceId={boardDefaultSpace}
+          lockedProject={project}
+          onClose={() => setBoardReqOpen(false)}
+          onSubmit={(input, spaceId) => caseActions.onRequest(spaceId, input)}
         />
       )}
 

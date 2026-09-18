@@ -270,7 +270,6 @@ async def add_file(
         new_file.replaces_id = prev.id
         new_file.category = prev.category
         new_file.status = prev.status
-        # ฉบับใหม่ของใบเดิมคือเรื่องเดิม — ฟิลด์ที่ไม่ได้ส่งมาให้สืบทอด
         if not (title or "").strip():
             new_file.title = prev.title
         new_file.doc_number = new_file.doc_number or prev.doc_number
@@ -282,7 +281,6 @@ async def add_file(
     await session.commit()
     await session.refresh(case)
 
-    # แจ้งสมาชิกคนอื่นในที่เก็บ — คนส่งเองไม่ต้องรับ
     to = await notify.case_emails(session, case_id, exclude={me.id})
     if to:
         subject, body = notify.file_added(case, new_file, me)
@@ -309,7 +307,6 @@ async def update_file(
         raise HTTPException(403, "Only the uploader, the owner or an admin can edit this document")
     data = payload.model_dump(exclude_unset=True)
 
-    # ผูก/ถอดโปรเจคต้องผ่านการตรวจสิทธิ์ฝั่งโปรเจคด้วย ไม่ใช่แค่ฝั่งเอกสาร
     if "project_id" in data:
         new_id = data.pop("project_id")
         if new_id is not None and new_id != f.project_id:
@@ -337,7 +334,6 @@ async def download_file(
     case = await _get_case(session, case_id, me)
     f = _file_in(case, file_id)
 
-    # ชื่อไฟล์ไทยต้องส่งแบบ RFC 5987 ไม่งั้นเบราว์เซอร์ได้ชื่อเพี้ยน
     return Response(
         content=f.data,
         media_type=f.content_type,
@@ -428,12 +424,14 @@ async def create_request(
     if target is None:
         raise HTTPException(404, f"Document {payload.to_case_id} not found")
 
+    project_id = (await _linkable_project(session, payload.project_id, me)).id if payload.project_id else None
     req = DocumentRequest(
         from_case_id=case.id,
         to_case_id=target.id,
         requested_by=me.id,
         title=payload.title,
         note=payload.note.strip() or None,
+        project_id=project_id,
     )
     session.add(req)
     await session.commit()
@@ -473,6 +471,8 @@ async def fulfill_request(
 
     if requester.id == case.id:
         delivered_id = src.id
+        if req.project_id and src.project_id is None:
+            src.project_id = req.project_id
     else:
         copy = CaseFile(
             case_id=requester.id,
@@ -481,6 +481,7 @@ async def fulfill_request(
             doc_number=src.doc_number,
             agency=src.agency or case.title,
             deadline=src.deadline,
+            project_id=req.project_id,
             filename=src.filename,
             content_type=src.content_type,
             size=src.size,

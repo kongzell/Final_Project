@@ -371,3 +371,6 @@ a.rs-who:hover { color: var(--accent-text); text-decoration: underline; }
   color: var(--text-faint);
 }
 .rs-doc-open:hover { background: var(--bg-hover); color: var(--accent-text); }
+
+.rs-doc-btns { display: flex; gap: 6px; }
+.rs-doc-btns .rs-add-member { flex: 1; margin-top: 0; white-space: nowrap; }

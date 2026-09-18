@@ -224,6 +224,8 @@ class DocumentRequestOut(ApiModel):
     status: RequestStatus
     #: สำเนาที่ส่งเข้าที่เก็บผู้ขอ (เฉพาะ fulfilled)
     file_id: str | None = None
+    #: โปรเจคที่จะเอาเอกสารไปใช้ — null = ไม่เกี่ยวโปรเจค
+    project_id: str | None = None
     reply: str | None = None
     resolved_by: str | None = None
     resolved_at: datetime | None = None
@@ -234,6 +236,8 @@ class DocumentRequestCreate(ApiModel):
     to_case_id: str
     title: str = Field(min_length=1, max_length=300)
     note: str = Field(default="", max_length=1000)
+    #: ยื่นจากบอร์ดโปรเจค — เอกสารที่ได้รับจะผูกโปรเจคนี้ให้เอง
+    project_id: str | None = None
 
     @field_validator("title")
     @classmethod

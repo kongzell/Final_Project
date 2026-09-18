@@ -113,6 +113,8 @@ export type DocumentRequest = {
   status: RequestStatus
   /** สำเนาที่ส่งเข้าที่เก็บผู้ขอ (เฉพาะ fulfilled) */
   fileId: string | null
+  /** โปรเจคที่จะเอาเอกสารไปใช้ — ยื่นจากบอร์ด ไฟล์ที่ได้รับผูกโปรเจคนี้ให้เอง */
+  projectId: string | null
   reply: string | null
   resolvedBy: string | null
   resolvedAt: string | null

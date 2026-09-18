@@ -425,6 +425,10 @@ class DocumentRequest(Base):
     file_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("case_files.id", ondelete="SET NULL"), nullable=True
     )
+    #: โปรเจคที่เอกสารนี้จะไปใช้ — ยื่นจากบอร์ด ไฟล์ที่ได้รับผูกโปรเจคนี้ให้เลย SET NULL ถ้าโปรเจคถูกลบ
+    project_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("projects.id", ondelete="SET NULL"), nullable=True
+    )
     #: ข้อความตอบกลับตอนปฏิเสธ
     reply: Mapped[str | None] = mapped_column(Text, nullable=True)
     resolved_by: Mapped[str | None] = mapped_column(

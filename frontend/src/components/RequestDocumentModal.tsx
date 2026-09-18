@@ -1,30 +1,37 @@
 import { useEffect, useState } from "react"
 import type { NewDocumentRequest } from "../api"
-import type { CaseDirectoryEntry, Member } from "../types"
+import type { Case, CaseDirectoryEntry, Member, Project } from "../types"
 import { IconClose, IconFolder } from "./Icons"
 import "./Modal.css"
 import "./Documents.css"
 
 type Props = {
   /** ที่เก็บที่ยื่นคำขอ — ขึ้นบนสุดในชื่อ "This team" ขอจากทีมตัวเองก็ได้ */
-  fromCaseId: string
+  fromCaseId?: string
   directory: CaseDirectoryEntry[]
   /** ไว้แปลง ownerId → ชื่อเจ้าของ จะได้รู้ว่าพื้นที่นั้นเป็นทีมของใคร */
   members: Member[]
+  /** ยื่นจากบอร์ดโปรเจค: เลือกว่าจะยื่นในนามที่เก็บไหน (ที่ฉันเป็นสมาชิก) — เอกสารที่ได้จะไปอยู่ที่นั่น */
+  spaces?: Case[]
+  defaultSpaceId?: string
+  /** ยื่นจากบอร์ด: เอกสารที่ได้รับผูกโปรเจคนี้ให้เลย */
+  lockedProject?: Project
   onClose: () => void
-  onSubmit: (input: NewDocumentRequest) => Promise<void>
+  onSubmit: (input: NewDocumentRequest, fromCaseId: string) => Promise<void>
 }
 
 /** ขอเอกสารจากที่เก็บของทีมอื่น (หรือทีมตัวเอง) — เห็นแค่ชื่อทีมกับเจ้าของ ไม่เห็นไฟล์ข้างใน ผู้ดูแลฝั่งนั้นเป็นคนเลือกส่ง */
-export function RequestDocumentModal({ fromCaseId, directory, members, onClose, onSubmit }: Props) {
-  // ทีมตัวเองอยู่บนสุด ที่เหลือเรียงตามชื่อ
+export function RequestDocumentModal({
+  fromCaseId: fixedFrom, directory, members, spaces, defaultSpaceId, lockedProject, onClose, onSubmit,
+}: Props) {
+  const [spaceId, setSpaceId] = useState(fixedFrom ?? defaultSpaceId ?? spaces?.[0]?.id ?? "")
+  const fromCaseId = fixedFrom ?? spaceId
   const targets = [...directory].sort((a, b) =>
     Number(b.id === fromCaseId) - Number(a.id === fromCaseId) || a.title.localeCompare(b.title, "th"),
   )
   const ownerName = (id: string | null) => members.find((m) => m.id === id)?.name ?? null
   const [toCaseId, setToCaseId] = useState("")
   const [query, setQuery] = useState("")
-  // ทีมในองค์กรมีได้หลายสิบ dropdown ธรรมดาเลื่อนหายาก — พิมพ์ค้นแล้วเลือกจากรายการที่กรองแทน (ค้นจากชื่อเจ้าของได้ด้วย)
   const q = query.trim().toLowerCase()
   const shown = targets.filter((d) => !q || d.title.toLowerCase().includes(q) || (ownerName(d.ownerId) ?? "").toLowerCase().includes(q))
   const chosen = targets.find((d) => d.id === toCaseId) ?? null
@@ -39,14 +46,14 @@ export function RequestDocumentModal({ fromCaseId, directory, members, onClose, 
     return () => document.removeEventListener("keydown", onKey)
   }, [onClose])
 
-  const canSubmit = toCaseId !== "" && title.trim().length > 0
+  const canSubmit = toCaseId !== "" && title.trim().length > 0 && fromCaseId !== ""
 
   const submit = async () => {
     if (!canSubmit || busy) return
     setBusy(true)
     setError(null)
     try {
-      await onSubmit({ toCaseId, title: title.trim(), note: note.trim() || undefined })
+      await onSubmit({ toCaseId, title: title.trim(), note: note.trim() || undefined, projectId: lockedProject?.id }, fromCaseId)
       onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not send the request")
@@ -69,6 +76,21 @@ export function RequestDocumentModal({ fromCaseId, directory, members, onClose, 
         </header>
 
         <div className="modal-body">
+          {spaces && (
+            <label className="field">
+              <span className="field-label">Ask on behalf of</span>
+              {spaces.length === 0 ? (
+                <span className="field-hint">You are not in any document space yet — create one on the Documents page first.</span>
+              ) : (
+                <select value={spaceId} onChange={(e) => setSpaceId(e.target.value)}>
+                  {spaces.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}
+                </select>
+              )}
+              {lockedProject && (
+                <span className="field-hint">The document you receive lands there and is linked to <strong>{lockedProject.name}</strong>.</span>
+              )}
+            </label>
+          )}
           <div className="field">
             <span className="field-label">From which team</span>
             {targets.length === 0 ? (

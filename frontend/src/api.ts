@@ -71,9 +71,6 @@ export async function breakdownTask(
 
 // ---------- documents ----------
 //
-// รายการเรื่องส่งมาเป็น camelCase ตรงกับ Case อยู่แล้ว ไม่ต้องแปลงเหมือน Task
-// อัปโหลดใช้ FormData ไม่ใช่ JSON เพราะมีไฟล์แนบมาในคำขอเดียว — ห้ามตั้ง Content-Type เอง
-// เบราว์เซอร์ต้องเป็นคนใส่ boundary ให้
 
 export async function getCases(): Promise<Case[]> {
   const res = await fetch("/api/cases")
@@ -169,7 +166,7 @@ export async function getCaseDirectory(): Promise<CaseDirectoryEntry[]> {
   return res.json()
 }
 
-export type NewDocumentRequest = { toCaseId: string; title: string; note?: string }
+export type NewDocumentRequest = { toCaseId: string; title: string; note?: string; projectId?: string }
 
 /** ขอเอกสารจากที่เก็บอื่น — คืนที่เก็บผู้ขอ (มี requestsOut ใหม่) */
 export async function createDocumentRequest(caseId: string, input: NewDocumentRequest): Promise<Case> {

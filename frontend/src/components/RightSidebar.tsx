@@ -20,6 +20,7 @@ type Props = {
   /** ที่เก็บเอกสารที่ฉันเป็นสมาชิก — เอกสารที่ผูกโปรเจคนี้กระจายอยู่ในนั้น */
   cases: Case[]
   onAddDocument: () => void
+  onRequestDocument: () => void
   onOpenDocument: (caseId: string) => void
 }
 
@@ -33,13 +34,14 @@ export function RightSidebar({
   canManage,
   cases,
   onAddDocument,
+  onRequestDocument,
   onOpenDocument,
 }: Props) {
   return (
     <aside className="rs">
       {project && <ProjectStats project={project} onOpen={onOpenProject} />}
       {project && (
-        <ProjectDocuments project={project} cases={cases} onAdd={onAddDocument} onOpen={onOpenDocument} />
+        <ProjectDocuments project={project} cases={cases} onAdd={onAddDocument} onRequest={onRequestDocument} onOpen={onOpenDocument} />
       )}
       {project && (
         <TeamPanel
@@ -196,12 +198,12 @@ function TeamPanel({
 /* ---------- เอกสารของโปรเจค (จากทุกที่เก็บที่ฉันอยู่) ---------- */
 
 function ProjectDocuments({
-  project, cases, onAdd, onOpen,
-}: { project: Project; cases: Case[]; onAdd: () => void; onOpen: (caseId: string) => void }) {
-  // เอกสารผูกกับโปรเจครายใบ — ใบที่ผูกโปรเจคนี้อาจกระจายอยู่หลายที่เก็บ รวมมาให้ดูที่เดียว
+  project, cases, onAdd, onRequest, onOpen,
+}: { project: Project; cases: Case[]; onAdd: () => void; onRequest: () => void; onOpen: (caseId: string) => void }) {
   const rows: { c: Case; f: CaseFile }[] = cases.flatMap((c) =>
     currentFiles(c).filter((f) => f.projectId === project.id).map((f) => ({ c, f })),
   )
+  const waiting = cases.flatMap((c) => c.requestsOut.filter((r) => r.projectId === project.id && r.status === "pending").map((r) => ({ c, r })))
   const statusOf = (f: CaseFile) => CASE_STATUSES.find((s) => s.id === f.status)
 
   return (
@@ -211,9 +213,25 @@ function ProjectDocuments({
         <span className="rs-count">{rows.length}</span>
       </header>
 
-      {rows.length === 0 ? (
+      {waiting.length > 0 && (
+        <ul className="rs-docs">
+          {waiting.map(({ c, r }) => (
+            <li key={r.id}>
+              <button type="button" className="rs-doc" onClick={() => onOpen(c.id)} title="Open the request">
+                <span className="rs-doc-top">
+                  <span className="dot" style={{ background: "var(--accent)" }} />
+                  <span className="rs-doc-title">{r.title}</span>
+                </span>
+                <span className="rs-doc-meta">Waiting · requested via {c.title}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {rows.length === 0 && waiting.length === 0 ? (
         <p className="rs-empty">No document linked to this project yet</p>
-      ) : (
+      ) : rows.length === 0 ? null : (
         <ul className="rs-docs">
           {rows.map(({ c, f }) => (
             <li key={f.id}>
@@ -232,9 +250,14 @@ function ProjectDocuments({
         </ul>
       )}
 
-      <button type="button" className="rs-add-member" onClick={onAdd}>
-        <IconPlus size={14} /> Add document
-      </button>
+      <div className="rs-doc-btns">
+        <button type="button" className="rs-add-member" onClick={onAdd}>
+          <IconPlus size={14} /> Add document
+        </button>
+        <button type="button" className="rs-add-member is-ghost" onClick={onRequest} title="Ask a team for a document for this project">
+          Request
+        </button>
+      </div>
     </section>
   )
 }

@@ -68,6 +68,7 @@ def request_out(r: DocumentRequest) -> DocumentRequestOut:
         note=r.note,
         status=r.status,
         file_id=r.file_id,
+        project_id=r.project_id,
         reply=r.reply,
         resolved_by=r.resolved_by,
         resolved_at=r.resolved_at,

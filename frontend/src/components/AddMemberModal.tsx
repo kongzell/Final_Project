@@ -39,7 +39,6 @@ export function AddMemberModal({
     return () => document.removeEventListener("keydown", onKey)
   }, [onClose])
 
-  // ค้นจากชื่อ / username / GitHub login / สายงาน — บัญชีทั้งระบบอยู่ในรายการนี้ ไม่ใช่แค่คนในทีม
   const [query, setQuery] = useState("")
   const q = query.trim().toLowerCase()
   const found = available.filter((m) =>

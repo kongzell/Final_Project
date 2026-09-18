@@ -56,7 +56,7 @@
   transition: border-color 0.12s ease, background 0.12s ease;
 }
 .case-card:hover { border-color: var(--border-strong); background: var(--bg-hover); }
-/* เลยกำหนดส่ง — โทนเดียวกับการ์ดงาน แต่บางกว่า เพราะเรื่องไม่ใช่งานที่ต้องรีบทำเอง */
+
 .case-card.is-late { border-color: var(--warning); box-shadow: inset 3px 0 0 var(--warning); }
 
 .case-top { display: flex; align-items: center; justify-content: space-between; }
@@ -70,13 +70,6 @@
   font-weight: 600;
 }
 .case-status .dot { width: 7px; height: 7px; border-radius: 50%; }
-.case-status.is-btn {
-  padding: 4px 10px;
-  border: 1px solid var(--border-strong);
-  border-radius: 999px;
-  cursor: pointer;
-}
-.case-status.is-btn:hover { background: var(--bg-hover); }
 
 .case-title {
   margin: 0;
@@ -119,7 +112,6 @@
 }
 .case-bar span { display: block; height: 100%; background: var(--status-complete); }
 
-
 /* ---------- workspace ที่เปิดอยู่ ---------- */
 .ws-head-main { min-width: 0; flex: 1; }
 .docs-title.is-editable { cursor: text; border-radius: 6px; padding: 0 4px; margin-left: -4px; }
@@ -155,7 +147,6 @@
   color: var(--text);
 }
 
-/* การ์ดไฟล์ 1 ฉบับ */
 .file-card {
   display: flex;
   flex-direction: column;
@@ -199,11 +190,10 @@
 .file-card-actions .member-action.is-ai { color: var(--accent-text); border-color: var(--accent); white-space: nowrap; }
 .file-card-actions .member-action.is-ai:not(:disabled):hover { background: var(--accent-soft); }
 
-/* แผงขวาของ workspace */
 .ws-member { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
 .ws-add-member { width: 100%; justify-content: center; margin-top: 8px; }
 .ws-delete { width: 100%; justify-content: center; margin-top: 4px; }
-/* ป้ายสถานะที่กดเลือกได้ — select ซ่อนลูกศร ใส่จุดสีของสถานะไว้หน้า */
+
 .ws-status {
   display: inline-flex;
   align-items: center;
@@ -249,7 +239,6 @@
 .ws-search { margin-left: auto; width: 260px; max-width: 100%; padding: 6px 10px; font-size: 13.5px; }
 .ws-nomatch { margin: 40px 0; text-align: center; font-size: 14px; color: var(--text-faint); }
 
-/* การ์ดเอกสารเลยกำหนด — โทนเดียวกับการ์ดงาน */
 .file-card.is-late { border-color: var(--warning); box-shadow: inset 3px 0 0 var(--warning); }
 .file-card-top { gap: 6px; }
 .file-card-top .ws-status, .file-card-top .case-status { margin-left: auto; }
@@ -257,12 +246,10 @@
 .file-card .file-card-name { font-size: 13px; font-weight: 500; color: var(--text-dim); }
 .file-card .case-foot { margin-top: 4px; padding-top: 8px; }
 
-/* แผงขวา: นับตามสถานะ */
 .ws-overview { list-style: none; margin: 0; padding: 0; }
 .ws-overview li { display: flex; align-items: center; justify-content: space-between; padding: 4px 0; }
 .ws-overview-n { font-family: var(--mono); font-size: 12.5px; color: var(--text-dim); }
 
-/* modal ส่งเอกสาร: ช่องวางไฟล์ */
 .dropzone {
   display: flex;
   flex-direction: column;
@@ -310,7 +297,6 @@
 .req-status.is-fulfilled { background: var(--status-complete); color: #fff; }
 .req-status.is-declined { background: var(--warning); color: var(--warning-ink); }
 
-/* เลือกทีมปลายทางแบบพิมพ์ค้น — รายการสั้น เลื่อนได้ */
 .team-pick {
   list-style: none;
   margin: 6px 0 0;
@@ -365,8 +351,9 @@
   gap: 14px;
   overflow-x: auto;
   padding-bottom: 12px;
+  min-height: min(70vh, 640px);
 }
-.doc-board.is-strip { margin-bottom: 16px; }
+.doc-board.is-strip { min-height: 0; margin-bottom: 16px; }
 .doc-col {
   flex: 0 0 300px;
   display: flex;
@@ -412,3 +399,42 @@
   vertical-align: 1px;
 }
 .team-pick-row.is-on .team-pick-tag { background: var(--accent); color: var(--accent-ink); }
+
+/* ---------- การ์ดโปรเจคในกระดานเอกสาร ---------- */
+.doc-col.is-projects { flex-basis: 340px; }
+.proj-card { gap: 8px; }
+.proj-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.proj-head .case-progress { margin-left: auto; }
+.proj-docs, .proj-reqs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.proj-docs { border-top: 1px solid var(--border); }
+.proj-doc-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 8px 2px;
+  border-bottom: 1px solid var(--border);
+}
+.proj-doc-row.is-late { box-shadow: inset 3px 0 0 var(--warning); padding-left: 8px; }
+.proj-doc-main { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 100%; }
+.proj-doc-title {
+  min-width: 0;
+  color: var(--text-strong);
+  font-size: 13.5px;
+  font-weight: 600;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.proj-doc-title:hover { text-decoration: underline; }
+.proj-doc-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; flex: 1 1 auto; font-size: 11.5px; color: var(--text-faint); }
+.proj-doc-side { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.proj-doc-more { display: inline-flex; padding: 3px; border-radius: 6px; color: var(--text-faint); }
+.proj-doc-more:hover { background: var(--bg-hover); color: var(--text-strong); }
+.proj-req { display: flex; align-items: center; gap: 6px; padding: 6px 2px; font-size: 12.5px; }
+.proj-req-title { font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proj-req-meta { color: var(--text-faint); white-space: nowrap; }
+.proj-req .member-action { margin-left: auto; }
+.proj-foot { display: flex; gap: 6px; padding-top: 8px; border-top: 1px solid var(--border); }
+.proj-foot .member-action { margin-left: 0; }

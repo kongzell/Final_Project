@@ -9,8 +9,9 @@ import { ACCEPT, MAX_BYTES } from "./AddDocumentModal"
 import { Avatar } from "./Avatar"
 import { DocumentFileModal } from "./DocumentFileModal"
 import {
-  IconDownload, IconFile, IconFolder, IconLink, IconPlus, IconSparkle, IconTrash,
+  IconDots, IconDownload, IconFile, IconFolder, IconLink, IconPlus, IconSparkle, IconTrash,
 } from "./Icons"
+import { Menu, MenuItem, MenuLabel } from "./Menu"
 import { RequestDocumentModal } from "./RequestDocumentModal"
 import "./Documents.css"
 
@@ -33,7 +34,7 @@ const isLate = (f: CaseFile) => f.deadline !== null && isOpen(f) && f.deadline <
 const aiReadable = (f: Pick<CaseFile, "contentType">) =>
   ["application/pdf", "image/png", "image/jpeg", "text/plain"].includes(f.contentType)
 
-export type DocumentActions = {
+type DocumentActions = {
   onUpdate: (id: string, patch: CasePatch) => Promise<void>
   onDelete: (id: string) => Promise<void>
   onAddFile: (id: string, input: NewCaseFile) => Promise<void>
@@ -155,7 +156,6 @@ function Workspace({
   const [note, setNote] = useState<string | null>(null)
   const [extracting, setExtracting] = useState<string | null>(null)
   const [renaming, setRenaming] = useState(false)
-  // ชื่อในช่องแก้ — คัดลอกจากของจริงตอนเริ่มแก้ทีเดียว (key ของ Workspace รีเซ็ต state ตอนสลับที่เก็บอยู่แล้ว)
   const [title, setTitle] = useState("")
   const [adding, setAdding] = useState(false)
   const [requesting, setRequesting] = useState(false)
@@ -163,11 +163,12 @@ function Workspace({
   const [replacing, setReplacing] = useState<CaseFile | null>(null)
   const [query, setQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all")
-  // กระดาน = คอลัมน์ Requests + คอลัมน์ละประเภทเอกสาร (หรือละโปรเจค) — รายการ = การ์ดเรียงเฉย ๆ
   const [layout, setLayout] = useState<"board" | "list">("board")
-  const [groupBy, setGroupBy] = useState<"category" | "project">("category")
   /** คำขอที่กำลังตอบด้วยการอัปโหลดไฟล์ใหม่ */
   const [uploadFor, setUploadFor] = useState<DocumentRequest | null>(null)
+  /** เพิ่ม/ขอเอกสารจากการ์ดโปรเจค — ผูกโปรเจคนั้นให้เลย */
+  const [addingFor, setAddingFor] = useState<Project | null>(null)
+  const [requestingFor, setRequestingFor] = useState<Project | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const startRename = () => { setTitle(c.title); setRenaming(true) }
 
@@ -188,8 +189,6 @@ function Workspace({
     return out
   }
 
-  // ที่เก็บของทีมมีเอกสารหลายเรื่องปนกัน — กรองตามสถานะและค้นจากเรื่อง/เลขที่/หน่วยงาน/ชื่อไฟล์
-  // ใบที่เลยกำหนดขึ้นก่อน ที่เหลือใหม่สุดก่อน
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase()
     const projectName = (f: CaseFile) => projects.find((p) => p.id === f.projectId)?.name
@@ -207,40 +206,41 @@ function Workspace({
   }
 
   const projectOf = (f: CaseFile) => projects.find((p) => p.id === f.projectId) ?? null
-  const card = (f: CaseFile) => (
-    <DocCard
-      key={f.id}
-      f={f}
-      project={projectOf(f)}
-      older={history(f)}
-      uploader={uploader(f.uploadedBy)}
-      caseId={c.id}
-      canEdit={canEdit(f)}
-      canDelete={isOwner}
-      canBreakdown={canBreakdownIn(projectOf(f))}
-      extracting={extracting === f.id}
-      onStatus={(s) => void run(() => onUpdateFile(c.id, f.id, { status: s }))}
-      onEdit={() => setEditing(f)}
-      onVersion={() => { setReplacing(f); fileInput.current?.click() }}
-      onDelete={() => { if (window.confirm(`Delete "${f.title}" (${f.filename})?`)) void run(() => onDeleteFile(c.id, f.id)) }}
-      onBreakdown={() => onBreakdown(c, f)}
-      onExtract={() => {
-        setExtracting(f.id)
-        setNote(null)
-        void run(async () => setNote(await onExtract(c, f))).finally(() => setExtracting(null))
-      }}
-    />
-  )
+  /** ปุ่ม/สิทธิ์ของใบเดียว — ใช้ร่วมกันทั้งการ์ดเต็ม (DocCard) และแถวในการ์ดโปรเจค (DocRow) */
+  const actionsFor = (f: CaseFile): DocActions => ({
+    f,
+    project: projectOf(f),
+    older: history(f),
+    uploader: uploader(f.uploadedBy),
+    caseId: c.id,
+    canEdit: canEdit(f),
+    canDelete: isOwner,
+    canBreakdown: canBreakdownIn(projectOf(f)),
+    extracting: extracting === f.id,
+    onStatus: (s) => void run(() => onUpdateFile(c.id, f.id, { status: s })),
+    onEdit: () => setEditing(f),
+    onVersion: () => { setReplacing(f); fileInput.current?.click() },
+    onDelete: () => { if (window.confirm(`Delete "${f.title}" (${f.filename})?`)) void run(() => onDeleteFile(c.id, f.id)) },
+    onBreakdown: () => onBreakdown(c, f),
+    onExtract: () => {
+      setExtracting(f.id)
+      setNote(null)
+      void run(async () => setNote(await onExtract(c, f))).finally(() => setExtracting(null))
+    },
+  })
+  const card = (f: CaseFile) => <DocCard key={f.id} {...actionsFor(f)} />
 
-  // คอลัมน์ของกระดาน — โชว์เฉพาะกลุ่มที่มีเอกสาร (6 ประเภทว่าง ๆ เรียงกันรกเปล่า ๆ)
-  type Group = { key: string; label: string; hint?: string; files: CaseFile[] }
-  const groups: Group[] = groupBy === "category"
-    ? FILE_CATEGORIES.map((k) => ({ key: k.id, label: k.label, files: shown.filter((f) => f.category === k.id) }))
-    : [
-        ...projects.map((p) => ({ key: p.id, label: p.name, hint: p.githubRepo ?? undefined, files: shown.filter((f) => f.projectId === p.id) })),
-        { key: "none", label: "No project", files: shown.filter((f) => !f.projectId || !projects.some((p) => p.id === f.projectId)) },
-      ]
-  const columns = groups.filter((g) => g.files.length > 0)
+  const projectCards = projects
+    .map((p) => ({
+      project: p,
+      files: shown.filter((f) => f.projectId === p.id),
+      pending: c.requestsOut.filter((r) => r.projectId === p.id && r.status === "pending"),
+    }))
+    .filter((x) => x.files.length > 0 || x.pending.length > 0)
+  const loose = shown.filter((f) => !f.projectId || !projects.some((p) => p.id === f.projectId))
+  const typeColumns = FILE_CATEGORIES
+    .map((k) => ({ key: k.id, label: k.label, files: loose.filter((f) => f.category === k.id) }))
+    .filter((g) => g.files.length > 0)
   const hasRequests = c.requestsIn.some((r) => r.status === "pending") || c.requestsOut.length > 0
 
   const requestColumn = (
@@ -317,12 +317,6 @@ function Workspace({
             <button type="button" className={"ws-seg-btn" + (layout === "board" ? " is-on" : "")} onClick={() => setLayout("board")}>Board</button>
             <button type="button" className={"ws-seg-btn" + (layout === "list" ? " is-on" : "")} onClick={() => setLayout("list")}>List</button>
           </div>
-          {layout === "board" && (
-            <div className="ws-seg" role="group" aria-label="Group by">
-              <button type="button" className={"ws-seg-btn" + (groupBy === "category" ? " is-on" : "")} onClick={() => setGroupBy("category")}>By type</button>
-              <button type="button" className={"ws-seg-btn" + (groupBy === "project" ? " is-on" : "")} onClick={() => setGroupBy("project")}>By project</button>
-            </div>
-          )}
           <div className="ws-chips">
             {([["all", "All"], ["open", "Open"], ...CASE_STATUSES.map((s) => [s.id, s.label])] as [StatusFilter, string][]).map(([id, label]) => (
               <button
@@ -362,17 +356,40 @@ function Workspace({
       ) : layout === "board" ? (
         <div className="doc-board">
           {requestColumn}
-          {columns.map((g) => (
+          {projectCards.length > 0 && (
+            <section className="doc-col is-projects">
+              <header className="doc-col-head">
+                <span className="doc-col-name">Projects</span>
+                <span className="doc-col-count">{projectCards.length}</span>
+              </header>
+              {projectCards.map(({ project, files: pf, pending }) => (
+                <ProjectCard
+                  key={project.id}
+                  project={project}
+                  rows={pf.map(actionsFor)}
+                  pending={pending}
+                  spaceName={(id) => id === c.id ? "this team" : directory.find((d) => d.id === id)?.title ?? "another team"}
+                  canCancel={(r) => canManage || r.requestedBy === currentMemberId}
+                  onCancel={(rid) => void run(() => onCancelRequest(c.id, rid))}
+                  onAdd={() => setAddingFor(project)}
+                  onRequest={() => setRequestingFor(project)}
+                />
+              ))}
+            </section>
+          )}
+          {typeColumns.map((g) => (
             <section key={g.key} className="doc-col">
               <header className="doc-col-head">
                 <span className="doc-col-name">{g.label}</span>
-                {g.hint && <span className="doc-col-hint">{g.hint}</span>}
+                <span className="doc-col-hint">not in a project</span>
                 <span className="doc-col-count">{g.files.length}</span>
               </header>
               {g.files.map(card)}
             </section>
           ))}
-          {columns.length === 0 && files.length > 0 && <p className="ws-nomatch doc-col-none">No documents match this filter.</p>}
+          {projectCards.length === 0 && typeColumns.length === 0 && files.length > 0 && (
+            <p className="ws-nomatch doc-col-none">No documents match this filter.</p>
+          )}
         </div>
       ) : (
         <>
@@ -412,6 +429,25 @@ function Workspace({
           onSave={async () => {}}
         />
       )}
+      {addingFor && (
+        <DocumentFileModal
+          linkable={linkable}
+          lockedProject={addingFor}
+          onClose={() => setAddingFor(null)}
+          onSubmit={(input) => onAddFile(c.id, input)}
+          onSave={async () => {}}
+        />
+      )}
+      {requestingFor && (
+        <RequestDocumentModal
+          fromCaseId={c.id}
+          directory={directory}
+          members={members}
+          lockedProject={requestingFor}
+          onClose={() => setRequestingFor(null)}
+          onSubmit={(input) => onRequest(c.id, input)}
+        />
+      )}
       {editing && (
         <DocumentFileModal
           editing={editing}
@@ -427,7 +463,7 @@ function Workspace({
 
 // ---------- การ์ดเอกสาร 1 ใบ ----------
 
-type DocCardProps = {
+type DocActions = {
   f: CaseFile
   project: Project | null
   older: CaseFile[]
@@ -448,7 +484,7 @@ type DocCardProps = {
 function DocCard({
   f, project, older, uploader, caseId, canEdit, canDelete, canBreakdown, extracting,
   onStatus, onEdit, onVersion, onDelete, onBreakdown, onExtract,
-}: DocCardProps) {
+}: DocActions) {
   const status = CASE_STATUSES.find((s) => s.id === f.status)
   const late = isLate(f)
   const readable = aiReadable(f)
@@ -465,7 +501,6 @@ function DocCard({
       <div className="file-card-top">
         <span className="case-file-cat">{categoryLabel(f.category)}</span>
         {f.version > 1 && <span className="file-ver">v{f.version}</span>}
-        {/* select ธรรมดาแทนเมนูป๊อปอัป — การ์ดแคบ เมนู 215px ล้น */}
         {canEdit ? (
           <label className="ws-status" style={{ color: status?.color }} title="Status of this document">
             <span className="dot" style={{ background: status?.color }} />
@@ -553,6 +588,136 @@ function DocCard({
         )}
       </div>
     </article>
+  )
+}
+
+// ---------- การ์ดโปรเจค: เอกสารทุกใบของโปรเจคเดียวกันอยู่การ์ดเดียว ----------
+
+type ProjectCardProps = {
+  project: Project
+  rows: DocActions[]
+  pending: DocumentRequest[]
+  spaceName: (id: string) => string
+  canCancel: (r: DocumentRequest) => boolean
+  onCancel: (requestId: string) => void
+  onAdd: () => void
+  onRequest: () => void
+}
+
+function ProjectCard({ project, rows, pending, spaceName, canCancel, onCancel, onAdd, onRequest }: ProjectCardProps) {
+  const done = project.tasks.filter((t) => t.parentId === null && t.status === "complete").length
+  const total = project.tasks.filter((t) => t.parentId === null).length
+  const late = rows.filter((r) => isLate(r.f)).length
+
+  return (
+    <article className={"file-card proj-card" + (late > 0 ? " is-late" : "")}>
+      <div className="proj-head">
+        <span className="case-link"><IconLink size={13} /> {project.name}</span>
+        {project.githubRepo && <span className="case-project-repo">{project.githubRepo}</span>}
+        {total > 0 ? (
+          <span className="case-progress">
+            <span className="case-bar"><span style={{ width: `${(done / total) * 100}%` }} /></span>
+            {done}/{total} done
+          </span>
+        ) : <span className="case-progress is-dim">no tasks yet</span>}
+      </div>
+
+      {rows.length > 0 && (
+        <ul className="proj-docs">
+          {rows.map((r) => <DocRow key={r.f.id} {...r} />)}
+        </ul>
+      )}
+
+      {pending.length > 0 && (
+        <ul className="proj-reqs">
+          {pending.map((r) => (
+            <li key={r.id} className="proj-req">
+              <span className="req-status is-pending">Waiting</span>
+              <span className="proj-req-title">{r.title}</span>
+              <span className="proj-req-meta">from {spaceName(r.toCaseId)}</span>
+              {canCancel(r) && (
+                <button type="button" className="member-action" title="Cancel request" onClick={() => onCancel(r.id)}>
+                  <IconTrash size={12} />
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="proj-foot">
+        <button type="button" className="member-action" onClick={onAdd}><IconPlus size={13} /> Add document</button>
+        <button type="button" className="member-action" onClick={onRequest}>Request document</button>
+      </div>
+    </article>
+  )
+}
+
+/** แถวเอกสาร 1 ใบในการ์ดโปรเจค — ข้อมูลย่อ + เมนู ⋯ แทนปุ่มเรียงแถวของการ์ดเต็ม */
+function DocRow({
+  f, caseId, canEdit, canDelete, canBreakdown, extracting,
+  onStatus, onEdit, onVersion, onDelete, onBreakdown, onExtract,
+}: DocActions) {
+  const status = CASE_STATUSES.find((s) => s.id === f.status)
+  const late = isLate(f)
+  const readable = aiReadable(f)
+
+  return (
+    <li className={"proj-doc-row" + (late ? " is-late" : "")}>
+      <div className="proj-doc-main">
+        <span className="case-file-cat">{categoryLabel(f.category)}</span>
+        <a className="proj-doc-title" href={caseFileUrl(caseId, f.id)} target="_blank" rel="noreferrer" title={f.filename}>
+          {f.title}{f.version > 1 ? <span className="file-ver"> v{f.version}</span> : null}
+        </a>
+      </div>
+      {(f.docNumber || f.agency || f.deadline) && (
+        <div className="proj-doc-meta">
+          {f.docNumber && <span>{f.docNumber}</span>}
+          {f.agency && <span>{f.agency}</span>}
+          {f.deadline && (
+            <span className={"case-deadline" + (late ? " is-late" : "")}>{late ? "Overdue" : "Due"} {fmtDate(f.deadline)}</span>
+          )}
+        </div>
+      )}
+      <div className="proj-doc-side">
+        {canEdit ? (
+          <label className="ws-status" style={{ color: status?.color }} title="Status of this document">
+            <span className="dot" style={{ background: status?.color }} />
+            <select value={f.status} onChange={(e) => onStatus(e.target.value as CaseStatus)}>
+              {CASE_STATUSES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+            </select>
+          </label>
+        ) : (
+          <span className="case-status" style={{ color: status?.color }}>
+            <span className="dot" style={{ background: status?.color }} />{status?.label}
+          </span>
+        )}
+        <Menu align="right" title="Actions" trigger={() => <span className="proj-doc-more"><IconDots size={14} /></span>}>
+          {(close) => (
+            <>
+              {canBreakdown && readable ? (
+                <MenuItem onClick={() => { close(); onBreakdown() }}>
+                  <IconSparkle size={13} /> Create task cards
+                </MenuItem>
+              ) : (
+                <MenuLabel>
+                  {!readable ? "AI reads PDF, images and text only" : "Only the project owner/admin can create task cards"}
+                </MenuLabel>
+              )}
+              {canEdit && readable && (
+                <MenuItem onClick={() => { close(); onExtract() }}>{extracting ? "Reading..." : "Fill details with AI"}</MenuItem>
+              )}
+              {canEdit && <MenuItem onClick={() => { close(); onEdit() }}>Edit details</MenuItem>}
+              <MenuItem onClick={() => { close(); window.open(caseFileUrl(caseId, f.id), "_blank") }}>
+                <IconDownload size={13} /> Open / download
+              </MenuItem>
+              <MenuItem onClick={() => { close(); onVersion() }}>New version</MenuItem>
+              {canDelete && <MenuItem danger onClick={() => { close(); onDelete() }}><IconTrash size={13} /> Delete</MenuItem>}
+            </>
+          )}
+        </Menu>
+      </div>
+    </li>
   )
 }
 
@@ -698,7 +863,6 @@ function RequestColumn({
               {r.note && <p className="req-note">{r.note}</p>}
               {canManage ? (
                 <div className="req-answer">
-                  {/* ไม่มีไฟล์ในที่เก็บ = ไม่มีอะไรให้เลือก ชี้ไปอัปโหลดเลยแทนที่จะโชว์ dropdown ว่าง */}
                   {files.length === 0 ? (
                     <p className="rs-fair">Nothing in this space yet — upload the file and it goes straight to them.</p>
                   ) : (
