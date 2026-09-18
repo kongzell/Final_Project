@@ -156,7 +156,7 @@ export function DocumentFileModal({
             <input
               autoFocus={!!editing}
               className="field-input"
-              placeholder={titleHint || "e.g. จ้างพัฒนาระบบจองห้องประชุม"}
+              placeholder={titleHint}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && void submit()}
