@@ -268,6 +268,26 @@ class CaseDirectoryEntry(ApiModel):
     is_member: bool
 
 
+class ProjectFileOut(CaseFileOut):
+    """เอกสารที่ผูกโปรเจค มองจากฝั่งบอร์ด — บอกด้วยว่ามาจากที่เก็บไหน และฉันแก้ได้ไหม (ต้องอยู่ในที่เก็บนั้น)"""
+
+    case_id: str
+    case_title: str
+    can_open_case: bool
+
+
+class ProjectRequestOut(DocumentRequestOut):
+    from_case_title: str
+    to_case_title: str
+
+
+class ProjectDocumentsOut(ApiModel):
+    """เอกสาร + คำขอที่ค้างของโปรเจค — ดูได้ทุกคนในโปรเจคแม้ไม่ได้อยู่ในที่เก็บต้นทาง"""
+
+    files: list[ProjectFileOut]
+    requests: list[ProjectRequestOut]
+
+
 class CaseOut(ApiModel):
     """Document = ที่เก็บเอกสารกลางของทีม — มีแค่ชื่อกับสมาชิก"""
 

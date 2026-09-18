@@ -2,8 +2,8 @@ import { useEffect, useState } from "react"
 import type { Commit, SystemHealth, WebhookEvent } from "../api"
 import { applySuggestion, getCommits, getSystemHealth, getWebhookEvents } from "../api"
 import { caseFileUrl } from "../api"
-import type { Case, CaseFile, Member, Project, Task } from "../types"
-import { CASE_STATUSES, currentFiles, openTasksOf, taskPoints, WORKLOAD_CAPACITY, workloadLevel } from "../types"
+import type { CaseFile, Member, Project, ProjectDocuments, Task } from "../types"
+import { CASE_STATUSES, openTasksOf, taskPoints, WORKLOAD_CAPACITY, workloadLevel } from "../types"
 import { Avatar } from "./Avatar"
 import { IconFile, IconPlus } from "./Icons"
 import "./RightSidebar.css"
@@ -17,8 +17,8 @@ type Props = {
   onOpenMember: (id: string) => void
   /** เจ้าของโปรเจคเท่านั้นที่เพิ่มพนักงานได้ */
   canManage: boolean
-  /** ที่เก็บเอกสารที่ฉันเป็นสมาชิก — เอกสารที่ผูกโปรเจคนี้กระจายอยู่ในนั้น */
-  cases: Case[]
+  /** เอกสาร + คำขอค้างของโปรเจคนี้ — null = ยังโหลดไม่เสร็จ */
+  docs: ProjectDocuments | null
   onAddDocument: () => void
   onRequestDocument: () => void
   onOpenDocument: (caseId: string) => void
@@ -32,7 +32,7 @@ export function RightSidebar({
   onOpenMember,
   onOpenProject,
   canManage,
-  cases,
+  docs,
   onAddDocument,
   onRequestDocument,
   onOpenDocument,
@@ -41,7 +41,7 @@ export function RightSidebar({
     <aside className="rs">
       {project && <ProjectStats project={project} onOpen={onOpenProject} />}
       {project && (
-        <ProjectDocuments project={project} cases={cases} onAdd={onAddDocument} onRequest={onRequestDocument} onOpen={onOpenDocument} />
+        <ProjectDocumentsPanel docs={docs} onAdd={onAddDocument} onRequest={onRequestDocument} onOpen={onOpenDocument} />
       )}
       {project && (
         <TeamPanel
@@ -197,13 +197,12 @@ function TeamPanel({
 
 /* ---------- เอกสารของโปรเจค (จากทุกที่เก็บที่ฉันอยู่) ---------- */
 
-function ProjectDocuments({
-  project, cases, onAdd, onRequest, onOpen,
-}: { project: Project; cases: Case[]; onAdd: () => void; onRequest: () => void; onOpen: (caseId: string) => void }) {
-  const rows: { c: Case; f: CaseFile }[] = cases.flatMap((c) =>
-    currentFiles(c).filter((f) => f.projectId === project.id).map((f) => ({ c, f })),
-  )
-  const waiting = cases.flatMap((c) => c.requestsOut.filter((r) => r.projectId === project.id && r.status === "pending").map((r) => ({ c, r })))
+/** ทุกใบที่ผูกโปรเจคนี้จากทุกที่เก็บ — คนในโปรเจคเห็นและเปิดไฟล์ได้ทุกใบ แต่เข้าที่เก็บได้เฉพาะที่ตัวเองเป็นสมาชิก */
+function ProjectDocumentsPanel({
+  docs, onAdd, onRequest, onOpen,
+}: { docs: ProjectDocuments | null; onAdd: () => void; onRequest: () => void; onOpen: (caseId: string) => void }) {
+  const rows = docs?.files ?? []
+  const waiting = docs?.requests ?? []
   const statusOf = (f: CaseFile) => CASE_STATUSES.find((s) => s.id === f.status)
 
   return (
@@ -215,34 +214,46 @@ function ProjectDocuments({
 
       {waiting.length > 0 && (
         <ul className="rs-docs">
-          {waiting.map(({ c, r }) => (
+          {waiting.map((r) => (
             <li key={r.id}>
-              <button type="button" className="rs-doc" onClick={() => onOpen(c.id)} title="Open the request">
+              <button type="button" className="rs-doc" onClick={() => onOpen(r.fromCaseId)} title="Open the request">
                 <span className="rs-doc-top">
                   <span className="dot" style={{ background: "var(--accent)" }} />
                   <span className="rs-doc-title">{r.title}</span>
                 </span>
-                <span className="rs-doc-meta">Waiting · requested via {c.title}</span>
+                <span className="rs-doc-meta">Waiting · {r.fromCaseTitle} asked {r.fromCaseId === r.toCaseId ? "its own team" : r.toCaseTitle}</span>
               </button>
             </li>
           ))}
         </ul>
       )}
 
-      {rows.length === 0 && waiting.length === 0 ? (
+      {docs === null ? (
+        <p className="rs-empty">Loading…</p>
+      ) : rows.length === 0 && waiting.length === 0 ? (
         <p className="rs-empty">No document linked to this project yet</p>
       ) : rows.length === 0 ? null : (
         <ul className="rs-docs">
-          {rows.map(({ c, f }) => (
+          {rows.map((f) => (
             <li key={f.id}>
-              <button type="button" className="rs-doc" onClick={() => onOpen(c.id)} title={`Open in ${c.title}`}>
-                <span className="rs-doc-top">
-                  <span className="dot" style={{ background: statusOf(f)?.color }} />
-                  <span className="rs-doc-title">{f.title}</span>
-                </span>
-                <span className="rs-doc-meta">{f.category.toUpperCase()} · {c.title}</span>
-              </button>
-              <a className="rs-doc-open" href={caseFileUrl(c.id, f.id)} target="_blank" rel="noreferrer" title={`Open ${f.filename}`}>
+              {f.canOpenCase ? (
+                <button type="button" className="rs-doc" onClick={() => onOpen(f.caseId)} title={`Open in ${f.caseTitle}`}>
+                  <span className="rs-doc-top">
+                    <span className="dot" style={{ background: statusOf(f)?.color }} />
+                    <span className="rs-doc-title">{f.title}</span>
+                  </span>
+                  <span className="rs-doc-meta">{f.category.toUpperCase()} · {f.caseTitle}</span>
+                </button>
+              ) : (
+                <a className="rs-doc" href={caseFileUrl(f.caseId, f.id)} target="_blank" rel="noreferrer" title={`Shared from ${f.caseTitle} — open ${f.filename}`}>
+                  <span className="rs-doc-top">
+                    <span className="dot" style={{ background: statusOf(f)?.color }} />
+                    <span className="rs-doc-title">{f.title}</span>
+                  </span>
+                  <span className="rs-doc-meta">{f.category.toUpperCase()} · shared from {f.caseTitle}</span>
+                </a>
+              )}
+              <a className="rs-doc-open" href={caseFileUrl(f.caseId, f.id)} target="_blank" rel="noreferrer" title={`Open ${f.filename}`}>
                 <IconFile size={13} />
               </a>
             </li>

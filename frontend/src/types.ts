@@ -121,6 +121,23 @@ export type DocumentRequest = {
   createdAt: string
 }
 
+/** เอกสารของโปรเจค มองจากบอร์ด — รวมจากทุกที่เก็บ บอกที่เก็บต้นทางและว่าฉันเปิดที่เก็บนั้นได้ไหม */
+export type ProjectFile = CaseFile & {
+  caseId: string
+  caseTitle: string
+  canOpenCase: boolean
+}
+
+export type ProjectRequest = DocumentRequest & {
+  fromCaseTitle: string
+  toCaseTitle: string
+}
+
+export type ProjectDocuments = {
+  files: ProjectFile[]
+  requests: ProjectRequest[]
+}
+
 /** ที่เก็บทุกอันในระบบแบบย่อ — ไว้เลือกปลายทางตอนขอเอกสาร */
 export type CaseDirectoryEntry = {
   id: string

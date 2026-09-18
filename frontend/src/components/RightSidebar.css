@@ -359,6 +359,7 @@ a.rs-who:hover { color: var(--accent-text); text-decoration: underline; }
   cursor: pointer;
 }
 .rs-doc:hover { background: var(--bg-hover); }
+a.rs-doc { text-decoration: none; }
 .rs-doc-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .rs-doc-top .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
 .rs-doc-title { font-size: 13px; font-weight: 600; color: var(--text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -8,16 +8,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import mailer, notify
 from app.auth import require_member
 from app.db import get_session
-from app.models import CaseFile, Member, Project, Task, project_members, task_assignees
+from app.models import Case, CaseFile, DocumentRequest, Member, Project, Task, project_members, task_assignees
 from app.schemas import (
     MemberRoleUpdate,
     ProjectCreate,
+    ProjectDocumentsOut,
+    ProjectFileOut,
     ProjectOut,
+    ProjectRequestOut,
     ProjectUpdate,
     TaskCreate,
     TaskOut,
 )
-from app.serialize import project_out, task_out
+from app.serialize import file_out, project_out, request_out, task_out
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -292,3 +295,58 @@ async def create_task(
         return task_out(task)
 
     raise HTTPException(409, "Could not create the task")
+
+
+# ---------- เอกสารของโปรเจค ----------
+
+
+@router.get("/{project_id}/documents", response_model=ProjectDocumentsOut)
+async def project_documents(
+    project_id: str,
+    me: Member = Depends(require_member),
+    session: AsyncSession = Depends(get_session),
+) -> ProjectDocumentsOut:
+    """เอกสารทุกใบที่ผูกโปรเจคนี้ (ฉบับล่าสุดของแต่ละสาย) + คำขอที่ยังค้าง — ดูได้ทุกคนในโปรเจค
+
+    ผูกเอกสารกับโปรเจค = แชร์ให้ทีมโปรเจคดู/ดาวน์โหลด แต่แก้ข้อมูลได้เฉพาะคนในที่เก็บต้นทาง
+    """
+    await _get_project(session, project_id, me)
+    my_cases = set(
+        await session.scalars(
+            select(Case.id).join(Case.members).where(Member.id == me.id)
+        )
+    )
+
+    rows = await session.execute(
+        select(CaseFile, Case.title)
+        .join(Case, Case.id == CaseFile.case_id)
+        .where(CaseFile.project_id == project_id)
+        .order_by(CaseFile.uploaded_at.desc())
+    )
+    files = [(f, title) for f, title in rows]
+    superseded = {f.replaces_id for f, _ in files if f.replaces_id}
+    out_files = [
+        ProjectFileOut(
+            **file_out(f).model_dump(),
+            case_id=f.case_id,
+            case_title=title,
+            can_open_case=f.case_id in my_cases,
+        )
+        for f, title in files
+        if f.id not in superseded
+    ]
+
+    from_case = Case.__table__.alias("from_case")
+    to_case = Case.__table__.alias("to_case")
+    req_rows = await session.execute(
+        select(DocumentRequest, from_case.c.title, to_case.c.title)
+        .join(from_case, from_case.c.id == DocumentRequest.from_case_id)
+        .join(to_case, to_case.c.id == DocumentRequest.to_case_id)
+        .where(DocumentRequest.project_id == project_id, DocumentRequest.status == "pending")
+        .order_by(DocumentRequest.created_at.desc())
+    )
+    out_reqs = [
+        ProjectRequestOut(**request_out(r).model_dump(), from_case_title=ft, to_case_title=tt)
+        for r, ft, tt in req_rows
+    ]
+    return ProjectDocumentsOut(files=out_files, requests=out_reqs)

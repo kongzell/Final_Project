@@ -1,6 +1,8 @@
 /** เรียก backend ผ่าน path สัมพัทธ์ — vite (dev) และ nginx (prod) proxy /api ให้อยู่แล้ว */
 
-import type { Case, CaseDirectoryEntry, CaseStatus, FileCategory, Project, PriorityId, StatusId, Task } from "./types"
+import type {
+  Case, CaseDirectoryEntry, CaseStatus, FileCategory, Project, ProjectDocuments, PriorityId, StatusId, Task,
+} from "./types"
 
 
 export type SubtaskSuggestion = {
@@ -203,6 +205,13 @@ export async function declineDocumentRequest(caseId: string, requestId: string, 
 /** ผู้ขอถอนคำขอที่ยังค้าง */
 export async function cancelDocumentRequest(caseId: string, requestId: string): Promise<Case> {
   const res = await fetch(`/api/cases/${caseId}/requests/${requestId}`, { method: "DELETE" })
+  if (!res.ok) throw new ApiError(await readError(res), res.status)
+  return res.json()
+}
+
+/** เอกสาร + คำขอค้างของโปรเจค — สมาชิกโปรเจคเห็นทุกใบที่ผูก แม้ไม่ได้อยู่ในที่เก็บต้นทาง */
+export async function getProjectDocuments(projectId: string): Promise<ProjectDocuments> {
+  const res = await fetch(`/api/projects/${projectId}/documents`)
   if (!res.ok) throw new ApiError(await readError(res), res.status)
   return res.json()
 }

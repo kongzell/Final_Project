@@ -19,6 +19,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Response, UploadFile
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app import ai, mailer, notify
 from app.auth import require_member
@@ -110,6 +111,18 @@ def _parse_date(value: str | None) -> date | None:
         return date.fromisoformat(value)
     except ValueError:
         raise HTTPException(422, "deadline must be YYYY-MM-DD") from None
+
+
+async def _readable_file(session: AsyncSession, case_id: str, file_id: str, me: Member) -> CaseFile:
+    """ไฟล์ที่ me เปิดดูได้ — สมาชิกของที่เก็บ หรือสมาชิกของโปรเจคที่ผูกไว้ คนนอกทั้งคู่ได้ 404"""
+    f = await session.get(CaseFile, file_id, options=[selectinload(CaseFile.case)])
+    if f is None or f.case_id != case_id:
+        raise HTTPException(404, "File not found")
+    if me.id in {m.id for m in f.case.members}:
+        return f
+    if f.project is not None and me.id in {m.id for m in f.project.members}:
+        return f
+    raise HTTPException(404, "File not found")
 
 
 def _file_in(case: Case, file_id: str) -> CaseFile:
@@ -330,9 +343,11 @@ async def download_file(
     me: Member = Depends(require_member),
     session: AsyncSession = Depends(get_session),
 ) -> Response:
-    """ตัวไฟล์ออกทางนี้ทางเดียว — inline ให้เบราว์เซอร์เปิด PDF ได้เลย"""
-    case = await _get_case(session, case_id, me)
-    f = _file_in(case, file_id)
+    """ตัวไฟล์ออกทางนี้ทางเดียว — inline ให้เบราว์เซอร์เปิด PDF ได้เลย
+
+    เปิดได้ถ้าอยู่ในที่เก็บ หรือเป็นสมาชิกของโปรเจคที่ใบนี้ผูกอยู่ (ผูกโปรเจค = แชร์ให้ทีมโปรเจค)
+    """
+    f = await _readable_file(session, case_id, file_id, me)
 
     return Response(
         content=f.data,
@@ -384,8 +399,7 @@ async def breakdown_file(
     ใบนั้นต้องผูกโปรเจคก่อนและคนกดต้องสร้างงานในโปรเจคนั้นได้ ไม่งั้นเสนอไปก็เอาไปลงที่ไหนไม่ได้
     เป็น opt-in ต่อไฟล์ เพราะกินโควตา Gemini และเนื้อหาออกไปนอกระบบ
     """
-    case = await _get_case(session, case_id, me)
-    f = _file_in(case, file_id)
+    f = await _readable_file(session, case_id, file_id, me)
     if f.project_id is None:
         raise HTTPException(400, "Link a project to this document first")
     if f.project is None or not f.project.can_manage(me.id):

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import type { Case, CaseDirectoryEntry, Member, PriorityId, Project, StatusId } from "./types"
+import type { Case, CaseDirectoryEntry, Member, PriorityId, Project, ProjectDocuments, StatusId } from "./types"
 import type { ThemeId } from "./themes"
 import { loadTheme, saveTheme } from "./themes"
 import type { AuthStatus, NewCase, SubtaskSuggestion } from "./api"
@@ -52,6 +52,9 @@ export default function App() {
   const [view, setView] = useState<"board" | "documents">("board")
   const [cases, setCases] = useState<Case[]>([])
   const [directory, setDirectory] = useState<CaseDirectoryEntry[]>([])
+  /** เอกสารของโปรเจคที่เปิดอยู่ — โหลดใหม่เมื่อสลับโปรเจคหรือมีการเปลี่ยนแปลงในหน้า Documents */
+  const [projectDocs, setProjectDocs] = useState<{ projectId: string; data: ProjectDocuments } | null>(null)
+  const [casesVersion, setCasesVersion] = useState(0)
   /** modal ส่ง/ขอเอกสารจากบอร์ด — ผูกโปรเจคที่เปิดอยู่ให้เลย */
   const [boardDocOpen, setBoardDocOpen] = useState(false)
   const [boardReqOpen, setBoardReqOpen] = useState(false)
@@ -123,6 +126,7 @@ export default function App() {
       const [mine, all] = await Promise.all([api.getCases(), api.getCaseDirectory()])
       setCases(mine)
       setDirectory(all)
+      setCasesVersion((v) => v + 1)
     } catch {
       // ยังไม่ล็อกอิน — หน้า LoginScreen บอกอยู่แล้ว
       setCases([])
@@ -370,6 +374,17 @@ export default function App() {
   }
 
   /** ที่เก็บที่มีเอกสารของโปรเจคที่เปิดอยู่แล้ว — ตั้งเป็นค่าเริ่มต้นตอนส่งเอกสารจากบอร์ด */
+  const shownProjectId = project?.id ?? null
+  useEffect(() => {
+    if (!shownProjectId) return
+    let alive = true
+    api.getProjectDocuments(shownProjectId)
+      .then((data) => { if (alive) setProjectDocs({ projectId: shownProjectId, data }) })
+      .catch(() => { if (alive) setProjectDocs({ projectId: shownProjectId, data: { files: [], requests: [] } }) })
+    return () => { alive = false }
+  }, [shownProjectId, casesVersion])
+  const shownDocs = projectDocs && projectDocs.projectId === shownProjectId ? projectDocs.data : null
+
   const boardDefaultSpace = project
     ? cases.find((c) => c.files.some((f) => f.projectId === project.id))?.id
     : undefined
@@ -551,7 +566,7 @@ export default function App() {
             setDashTab("member")
           }}
           canManage={canManage}
-          cases={cases}
+          docs={shownDocs}
           onAddDocument={() => setBoardDocOpen(true)}
           onRequestDocument={() => setBoardReqOpen(true)}
           onOpenDocument={(id) => { setView("documents"); setActiveCaseId(id) }}
