@@ -189,10 +189,6 @@ export function Timeline({ project, onOpenTask }: Props) {
             <text key={m.x} x={m.x + 2} y={12} className="tl-month">{m.label}</text>
           ))}
 
-          {bars.map((b) => (
-            <rect key={"row-" + b.task.id} x={0} y={rowY.get(b.task.id)!} width={w} height={ROW_H} className="tl-rowbg" />
-          ))}
-
           <g clipPath="url(#tl-clip)">
           {bars.map((b) => {
             const y = rowY.get(b.task.id)!
