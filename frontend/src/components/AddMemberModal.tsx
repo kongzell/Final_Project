@@ -27,12 +27,29 @@ type Props = {
   onImported: () => void
   /** คำเรียกสิ่งที่กำลังจัดการสมาชิก — "project" (ค่าเริ่มต้น) หรือ "document" */
   noun?: string
+  /** ที่เก็บเอกสารที่ผูกโปรเจคนี้และฉันจัดการได้ — เพิ่มคนเข้าโปรเจคแล้วให้เข้าที่เก็บด้วยในคลิกเดียว */
+  linkedSpaces?: { id: string; title: string; memberIds: string[] }[]
+  onAddToSpace?: (spaceId: string, memberId: string) => void
 }
 
 export function AddMemberModal({
   projectName, githubRepo, members, ownerId, adminIds, isOwner, available, onClose,
-  onAddExisting, onRemove, onSetRole, onImported, noun = "project",
+  onAddExisting, onRemove, onSetRole, onImported, noun = "project", linkedSpaces = [], onAddToSpace,
 }: Props) {
+  const [alsoSpaces, setAlsoSpaces] = useState<Set<string>>(() => new Set(linkedSpaces.map((s) => s.id)))
+  const toggleSpace = (id: string) =>
+    setAlsoSpaces((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  const add = (memberId: string) => {
+    onAddExisting(memberId)
+    for (const s of linkedSpaces) {
+      if (alsoSpaces.has(s.id) && !s.memberIds.includes(memberId)) onAddToSpace?.(s.id, memberId)
+    }
+  }
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose()
     document.addEventListener("keydown", onKey)
@@ -122,6 +139,17 @@ export function AddMemberModal({
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                 />
+                {linkedSpaces.length > 0 && (
+                  <div className="also-spaces">
+                    <span className="also-spaces-label">Also add to document space</span>
+                    {linkedSpaces.map((s) => (
+                      <label key={s.id} className="also-space">
+                        <input type="checkbox" checked={alsoSpaces.has(s.id)} onChange={() => toggleSpace(s.id)} />
+                        {s.title}
+                      </label>
+                    ))}
+                  </div>
+                )}
                 {found.length === 0 && <p className="modal-empty">Nobody matches "{query}"</p>}
                 <ul className="member-list member-list-scroll">
                   {found.map((m) => (
@@ -133,7 +161,7 @@ export function AddMemberModal({
                           {m.role}{m.username ? ` · @${m.username}` : m.githubLogin ? ` · ${m.githubLogin}` : ""}
                         </span>
                       </span>
-                      <button type="button" className="member-action" onClick={() => onAddExisting(m.id)}>
+                      <button type="button" className="member-action" onClick={() => add(m.id)}>
                         <IconPlus size={14} /> Add
                       </button>
                     </li>

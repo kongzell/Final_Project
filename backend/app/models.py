@@ -391,6 +391,9 @@ class CaseFile(Base):
         String(36), ForeignKey("members.id", ondelete="SET NULL"), nullable=True
     )
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    #: ธงกันส่งอีเมลซ้ำ — ล้างเมื่อเลื่อนกำหนดส่งหรือเปิดเรื่องใหม่ (ดู routers/cases.py)
+    due_soon_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    overdue_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     case: Mapped[Case] = relationship(back_populates="files")
     project: Mapped[Project | None] = relationship(lazy="selectin")

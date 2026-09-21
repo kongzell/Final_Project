@@ -616,6 +616,10 @@ export default function App() {
 
       {memberModalOpen && project && (
         <AddMemberModal
+          linkedSpaces={cases
+            .filter((c) => c.files.some((f) => f.projectId === project.id) && me !== null && (c.ownerId === me || c.adminIds.includes(me)))
+            .map((c) => ({ id: c.id, title: c.title, memberIds: c.memberIds }))}
+          onAddToSpace={(spaceId, memberId) => void api.addCaseMember(spaceId, memberId).then(refreshCases)}
           projectName={project.name}
           githubRepo={project.githubRepo}
           members={projectMembers}

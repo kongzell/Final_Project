@@ -92,6 +92,45 @@ def document_requested(to_case: Case, from_case: Case, req: DocumentRequest, who
     return subject, "\n".join(lines) + f"\n\nเปิดหน้า Documents: {url}\n\n--\nอีเมลนี้ส่งอัตโนมัติจากระบบ 3work"
 
 
+def _document_lines(f: CaseFile) -> list[str]:
+    lines = [f"  ไฟล์: {f.filename}"]
+    if f.doc_number:
+        lines.append(f"  เลขที่: {f.doc_number}")
+    if f.agency:
+        lines.append(f"  หน่วยงาน: {f.agency}")
+    return lines
+
+
+def _document_footer() -> str:
+    url = get_settings().app_url
+    return f"\n\nเปิดหน้า Documents: {url}\n\n--\nอีเมลนี้ส่งอัตโนมัติจากระบบ 3work"
+
+
+def document_due_soon(case: Case, f: CaseFile, days_left: int) -> tuple[str, str]:
+    """เอกสารใกล้ถึงกำหนดส่ง — แจ้งล่วงหน้าให้ทันเตรียม"""
+    when = "พรุ่งนี้" if days_left == 1 else "วันนี้" if days_left == 0 else f"อีก {days_left} วัน"
+    subject = f"[{case.title}] เอกสารใกล้กำหนดส่ง ({when}): {f.title}"
+    body = "\n".join([
+        f'เอกสาร "{f.title}" ถึงกำหนดส่ง{when} ({f.deadline.isoformat()})',
+        "",
+        *_document_lines(f),
+    ])
+    return subject, body + _document_footer()
+
+
+def document_overdue(case: Case, f: CaseFile) -> tuple[str, str]:
+    """เอกสารเลยกำหนดส่งแล้วแต่ยังไม่ส่งมอบ/ปิดเรื่อง"""
+    subject = f"[{case.title}] เอกสารเลยกำหนดส่ง: {f.title}"
+    body = "\n".join([
+        f'เอกสาร "{f.title}" เลยกำหนดส่งแล้ว (กำหนดส่ง: {f.deadline.isoformat()}) และยังไม่ได้ส่งมอบ',
+        "",
+        *_document_lines(f),
+        "",
+        "ถ้าส่งมอบแล้ว เปลี่ยนสถานะเป็น Delivered หรือ Closed เพื่อหยุดแจ้งเตือน",
+    ])
+    return subject, body + _document_footer()
+
+
 def document_request_resolved(from_case: Case, to_case: Case, req: DocumentRequest, who: Member) -> tuple[str, str]:
     """ผลคำขอกลับมาถึงผู้ขอ — ได้ไฟล์แล้ว หรือถูกปฏิเสธ"""
     if req.status == "fulfilled":

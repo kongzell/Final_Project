@@ -59,6 +59,8 @@ ALLOWED_TYPES = {
 }
 
 CATEGORIES = {"tor", "contract", "amendment", "minutes", "acceptance", "other"}
+#: สถานะที่ยังนับว่าเรื่องไม่จบ — ใช้ตัดสินว่าเลยกำหนดส่งหรือไม่
+OPEN_STATUSES = {"received", "in_progress"}
 
 
 async def _get_case(session: AsyncSession, case_id: str, me: Member) -> Case:
@@ -325,10 +327,16 @@ async def update_file(
             await _linkable_project(session, new_id, me)
         f.project_id = new_id
 
+    was_open = f.status in OPEN_STATUSES
     for field, value in data.items():
         if field in ("title", "doc_number", "agency") and value is not None:
             value = value.strip() or (None if field != "title" else f.title)
         setattr(f, field, value)
+
+    # เลื่อนกำหนดส่ง หรือเปิดเรื่องกลับมาจากส่งมอบ/ปิดแล้ว — ให้แจ้งเตือนรอบใหม่ได้
+    if "deadline" in data or (not was_open and f.status in OPEN_STATUSES):
+        f.due_soon_notified_at = None
+        f.overdue_notified_at = None
 
     await session.commit()
     await session.refresh(case)

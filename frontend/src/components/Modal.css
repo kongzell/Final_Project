@@ -214,3 +214,19 @@
 
 /* รายชื่อทั้งระบบอาจยาว — เลื่อนในกรอบแทนที่จะดัน modal สูงเกินจอ */
 .member-list-scroll { max-height: 240px; overflow-y: auto; margin-top: 8px; }
+
+/* เพิ่มคนเข้าโปรเจค + ที่เก็บเอกสารที่ผูกอยู่ในคลิกเดียว */
+.also-spaces {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin: 8px 0 4px;
+  padding: 8px 10px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 8px;
+  font-size: 12.5px;
+}
+.also-spaces-label { color: var(--text-faint); font-weight: 600; }
+.also-space { display: inline-flex; align-items: center; gap: 5px; color: var(--text); cursor: pointer; }
+.also-space input { accent-color: var(--accent); }
