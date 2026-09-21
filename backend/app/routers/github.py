@@ -13,7 +13,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, 
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import ai
+from app import ai, mailer, notify
 from app.auth import require_member
 from app.config import get_settings
 from app.db import SessionLocal, get_session
@@ -50,22 +50,23 @@ async def _advance_referenced_tasks(
     status: str,
     branch: str | None = None,
     review_url: str | None = None,
-) -> int:
-    """ย้ายการ์ดที่ commit หรือ PR อ้างถึงไปยังสถานะที่กำหนด
+) -> list[tuple[Project, Task]]:
+    """ย้ายการ์ดที่ commit หรือ PR อ้างถึงไปยังสถานะที่กำหนด — คืนรายการที่ย้ายจริง
 
     หาเฉพาะโปรเจคที่ผูกกับ repo ที่ยิงเข้ามา ทำให้รหัสย่อซ้ำกันข้าม repo ไม่กวนกัน
     งานที่ปิดไปแล้วไม่ถูกดึงกลับ เพราะ commit ตามหลังการปิดงานเป็นเรื่องปกติ
+    ตีกลับ (ไป in-progress) ทำได้เฉพาะงานที่รอตรวจอยู่ — ปิด PR ที่ไม่เกี่ยวไม่ควรดึงงานที่ยังไม่ส่งตรวจ
     """
     if not repo or not refs:
-        return 0
+        return []
 
     projects = list(
         await session.scalars(select(Project).where(Project.github_repo == repo))
     )
     if not projects:
-        return 0
+        return []
 
-    moved = 0
+    moved: list[tuple[Project, Task]] = []
     for ref in set(refs):
         prefix, _, number = ref.rpartition("-")
         for project in projects:
@@ -78,6 +79,8 @@ async def _advance_referenced_tasks(
             )
             if task is None or task.status == "complete":
                 continue
+            if status == "in-progress" and task.status != "review":
+                continue
 
             # เก็บที่อยู่ของโค้ดไว้เสมอ แม้สถานะจะไม่ได้เปลี่ยน
             # จะได้กดจากการ์ดไปดู diff ได้ตอนตรวจงาน
@@ -86,11 +89,11 @@ async def _advance_referenced_tasks(
             if review_url:
                 task.review_url = review_url
 
-            apply_status_change(task, status)
-            moved += 1
+            if task.status != status:
+                apply_status_change(task, status)
+                moved.append((project, task))
 
-    if moved:
-        await session.commit()
+    await session.commit()
     return moved
 
 
@@ -107,7 +110,7 @@ def _code_location(event: str, payload: dict) -> tuple[str | None, str | None]:
         branch = ref.removeprefix("refs/heads/") if ref.startswith("refs/heads/") else None
         return (None if branch == default else branch), None
 
-    if event == "pull_request":
+    if event in ("pull_request", "pull_request_review"):
         pr = payload.get("pull_request") or {}
         branch = ((pr.get("head") or {}).get("ref")) or None
         return (None if branch == default else branch), pr.get("html_url")
@@ -167,17 +170,25 @@ async def _suggest_matches(repo: str | None, event_ids: list[str]) -> None:
         await session.commit()
 
 
-def _target_status(event: str, payload: dict) -> str:
-    """PR ที่ถูก merge = ผ่านการตรวจแล้ว -> ปิดงาน  ส่วน push ยังแค่ส่งเข้าคิวตรวจ
+def _target_status(event: str, payload: dict) -> str | None:
+    """สถานะปลายทางของการ์ดที่ event นี้อ้างถึง — None = event นี้ไม่ย้ายการ์ด
 
+    push / เปิด PR = ส่งเข้าคิวตรวจ · PR ถูก merge = ผ่านการตรวจ -> ปิดงาน
+    PR ถูกขอแก้ (Request changes) หรือปิดโดยไม่ merge = ตีกลับ -> กลับไปกำลังทำ + การ์ดแดง
     การ merge เข้า main ทำได้เฉพาะคนที่ ruleset อนุญาต ซึ่งตั้งไว้ให้เป็นเจ้าของ repo
     การปิดงานอัตโนมัติจึงเท่ากับเจ้าของกดรับงานเอง
     """
     if event == "pull_request":
         pr = payload.get("pull_request") or {}
-        if payload.get("action") == "closed" and pr.get("merged"):
-            return "complete"
-    return "review"
+        if payload.get("action") == "closed":
+            return "complete" if pr.get("merged") else "in-progress"
+        return "review"
+    if event == "pull_request_review":
+        state = ((payload.get("review") or {}).get("state") or "").lower()
+        return "in-progress" if state == "changes_requested" else None
+    if event == "push":
+        return "review"
+    return None
 
 
 # สีสุ่มให้คนที่ดึงเข้ามาใหม่ ให้ avatar แยกกันออกตอนยังไม่มีรูป
@@ -535,14 +546,26 @@ async def webhook(
     refs = [ref for *_, ref in rows if ref]
     status = _target_status(x_github_event, payload)
     branch, review_url = _code_location(x_github_event, payload)
-    moved = await _advance_referenced_tasks(session, repo, refs, status, branch, review_url)
+    moved: list[tuple[Project, Task]] = []
+    if status:
+        moved = await _advance_referenced_tasks(session, repo, refs, status, branch, review_url)
+
+    # ถูกตีกลับจาก GitHub — คนรับงานต้องรู้ทันที เพราะไม่ได้เป็นคนกดเอง
+    if status == "in-progress":
+        who = (payload.get("sender") or {}).get("login") or "GitHub"
+        reason = "PR ถูกขอให้แก้ไข (Request changes)" if x_github_event == "pull_request_review" else "PR ถูกปิดโดยไม่ merge"
+        for project, task in moved:
+            to = await notify.emails_of(session, {m.id for m in task.assignees})
+            if to:
+                subject, body = notify.task_reworked(project, task, who, reason, review_url)
+                background.add_task(mailer.send, to, subject, body)
 
     # commit ที่ลืมใส่รหัสงาน ให้ AI เดาให้ทีหลัง แล้วเก็บไว้รอคนยืนยัน
     unmatched = [e.id for e, (*_, ref) in zip(saved, rows, strict=True) if not ref]
     if unmatched:
         background.add_task(_suggest_matches, repo, unmatched)
 
-    return {"saved": len(saved), "moved": moved, "status": status}
+    return {"saved": len(saved), "moved": len(moved), "status": status or ""}
 
 
 def _summarize(event: str, payload: dict) -> list[tuple[str, str | None, str | None, str | None]]:
@@ -577,6 +600,19 @@ def _summarize(event: str, payload: dict) -> list[tuple[str, str | None, str | N
                 (pr.get("user") or {}).get("login"),
                 pr.get("html_url"),
                 _read_ref(title) or _read_ref(pr.get("body") or ""),
+            )
+        ]
+
+    if event == "pull_request_review":
+        pr = payload.get("pull_request") or {}
+        review = payload.get("review") or {}
+        state = (review.get("state") or "").lower().replace("_", " ")
+        return [
+            (
+                f"PR review ({state}): {pr.get('title', '')}",
+                (review.get("user") or {}).get("login"),
+                review.get("html_url") or pr.get("html_url"),
+                _read_ref(pr.get("title") or "") or _read_ref(pr.get("body") or ""),
             )
         ]
 

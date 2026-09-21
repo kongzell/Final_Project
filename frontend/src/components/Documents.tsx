@@ -220,14 +220,26 @@ function Workspace({
   })
   const card = (f: CaseFile) => <DocCard key={f.id} {...actionsFor(f)} />
 
-  const projectCards = projects
-    .map((p) => ({
-      project: p,
+  // การ์ดโปรเจคของฉัน + การ์ดโปรเจคที่ฉันไม่ได้อยู่แต่มีใบผูกไว้ (รู้แค่ชื่อ ไม่รู้งาน) — ทุกคนเห็นการจัดกลุ่มเดียวกัน
+  const foreign = new Map<string, string>()
+  for (const f of shown) {
+    if (f.projectId && !projects.some((p) => p.id === f.projectId)) foreign.set(f.projectId, f.projectName ?? "a project")
+  }
+  const projectCards = [
+    ...projects.map((p) => ({
+      project: p as Project | null,
+      ref: { id: p.id, name: p.name, githubRepo: p.githubRepo },
       files: shown.filter((f) => f.projectId === p.id),
       pending: c.requestsOut.filter((r) => r.projectId === p.id && r.status === "pending"),
-    }))
-    .filter((x) => x.files.length > 0 || x.pending.length > 0)
-  const loose = shown.filter((f) => !f.projectId || !projects.some((p) => p.id === f.projectId))
+    })),
+    ...[...foreign].map(([id, name]) => ({
+      project: null as Project | null,
+      ref: { id, name, githubRepo: null as string | null },
+      files: shown.filter((f) => f.projectId === id),
+      pending: [] as DocumentRequest[],
+    })),
+  ].filter((x) => x.files.length > 0 || x.pending.length > 0)
+  const loose = shown.filter((f) => !f.projectId)
   const typeColumns = FILE_CATEGORIES
     .map((k) => ({ key: k.id, label: k.label, files: loose.filter((f) => f.category === k.id) }))
     .filter((g) => g.files.length > 0)
@@ -351,17 +363,19 @@ function Workspace({
                 <span className="doc-col-name">Projects</span>
                 <span className="doc-col-count">{projectCards.length}</span>
               </header>
-              {projectCards.map(({ project, files: pf, pending }) => (
+              {projectCards.map(({ project, ref, files: pf, pending }) => (
                 <ProjectCard
-                  key={project.id}
+                  key={ref.id}
                   project={project}
+                  name={ref.name}
+                  githubRepo={ref.githubRepo}
                   rows={pf.map(actionsFor)}
                   pending={pending}
                   spaceName={(id) => id === c.id ? "this team" : directory.find((d) => d.id === id)?.title ?? "another team"}
                   canCancel={(r) => canManage || r.requestedBy === currentMemberId}
                   onCancel={(rid) => void run(() => onCancelRequest(c.id, rid))}
-                  onAdd={() => setAddingFor(project)}
-                  onRequest={() => setRequestingFor(project)}
+                  onAdd={project ? () => setAddingFor(project) : undefined}
+                  onRequest={project ? () => setRequestingFor(project) : undefined}
                 />
               ))}
             </section>
@@ -536,6 +550,8 @@ function DocCard({
               </span>
             ) : <span className="case-progress is-dim">no tasks yet</span>}
           </>
+        ) : f.projectId ? (
+          <span className="case-link is-dim" title="You are not in this project"><IconLink size={12} /> {f.projectName ?? "a project"} · not a member</span>
         ) : <span className="case-link is-dim">Not related to a project</span>}
       </div>
 
@@ -569,27 +585,35 @@ function DocCard({
 // ---------- การ์ดโปรเจค: เอกสารทุกใบของโปรเจคเดียวกันอยู่การ์ดเดียว ----------
 
 type ProjectCardProps = {
-  project: Project
+  /** null = โปรเจคที่ฉันไม่ได้อยู่ — รู้แค่ชื่อ ไม่มีงาน/ปุ่มเพิ่ม */
+  project: Project | null
+  name: string
+  githubRepo: string | null
   rows: DocActions[]
   pending: DocumentRequest[]
   spaceName: (id: string) => string
   canCancel: (r: DocumentRequest) => boolean
   onCancel: (requestId: string) => void
-  onAdd: () => void
-  onRequest: () => void
+  onAdd?: () => void
+  onRequest?: () => void
 }
 
-function ProjectCard({ project, rows, pending, spaceName, canCancel, onCancel, onAdd, onRequest }: ProjectCardProps) {
-  const done = project.tasks.filter((t) => t.parentId === null && t.status === "complete").length
-  const total = project.tasks.filter((t) => t.parentId === null).length
+function ProjectCard({
+  project, name, githubRepo, rows, pending, spaceName, canCancel, onCancel, onAdd, onRequest,
+}: ProjectCardProps) {
+  const tasks = project?.tasks ?? []
+  const done = tasks.filter((t) => t.parentId === null && t.status === "complete").length
+  const total = tasks.filter((t) => t.parentId === null).length
   const late = rows.filter((r) => isLate(r.f)).length
 
   return (
     <article className={"file-card proj-card" + (late > 0 ? " is-late" : "")}>
       <div className="proj-head">
-        <span className="case-link"><IconLink size={13} /> {project.name}</span>
-        {project.githubRepo && <span className="case-project-repo">{project.githubRepo}</span>}
-        {total > 0 ? (
+        <span className={"case-link" + (project ? "" : " is-dim")}><IconLink size={13} /> {name}</span>
+        {githubRepo && <span className="case-project-repo">{githubRepo}</span>}
+        {!project ? (
+          <span className="case-progress is-dim" title="You are not in this project — ask its owner to add you to see its board">not a member</span>
+        ) : total > 0 ? (
           <span className="case-progress">
             <span className="case-bar"><span style={{ width: `${(done / total) * 100}%` }} /></span>
             {done}/{total} done
@@ -620,10 +644,12 @@ function ProjectCard({ project, rows, pending, spaceName, canCancel, onCancel, o
         </ul>
       )}
 
-      <div className="proj-foot">
-        <button type="button" className="member-action" onClick={onAdd}><IconPlus size={13} /> Add document</button>
-        <button type="button" className="member-action" onClick={onRequest}>Request document</button>
-      </div>
+      {onAdd && onRequest && (
+        <div className="proj-foot">
+          <button type="button" className="member-action" onClick={onAdd}><IconPlus size={13} /> Add document</button>
+          <button type="button" className="member-action" onClick={onRequest}>Request document</button>
+        </div>
+      )}
     </article>
   )
 }

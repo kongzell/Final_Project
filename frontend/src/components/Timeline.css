@@ -1,0 +1,63 @@
+/* Gantt ในแท็บ Project overview */
+
+.tl { display: flex; flex-direction: column; gap: 8px; }
+.tl-body { display: flex; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-app); overflow: hidden; }
+.tl-labels { flex: 0 0 210px; display: flex; flex-direction: column; border-right: 1px solid var(--border); box-sizing: border-box; }
+.tl-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+.tl-label:hover { background: var(--bg-hover); }
+.tl-label .tl-key { flex: none; font-family: var(--mono); font-size: 11px; color: var(--text-faint); }
+.tl-label .tl-title { font-size: 12.5px; color: var(--text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl-label .tl-title.is-late { color: var(--warning); }
+.tl-scroll { flex: 1; min-width: 0; overflow-x: auto; }
+.tl-svg { display: block; font-family: inherit; }
+
+.tl-grid { stroke: var(--border); stroke-width: 0.5; }
+.tl-weekend { fill: var(--bg-hover); opacity: 0.6; }
+.tl-day { font-size: 10.5px; fill: var(--text-faint); }
+.tl-month { font-size: 11px; font-weight: 600; fill: var(--text-dim); }
+
+.tl-rowbg { fill: transparent; }
+.tl-row:hover .tl-rowbg { fill: var(--bg-hover); }
+
+.tl-bar { stroke: none; }
+.tl-bar.is-done { fill: var(--status-complete); opacity: 0.75; }
+.tl-bar.is-doing { fill: var(--status-progress); opacity: 0.35; }
+.tl-bar-fill { fill: var(--status-progress); pointer-events: none; }
+.tl-bar.is-waiting { fill: var(--warning); opacity: 0.45; }
+.tl-bar.is-todo { fill: var(--status-todo); opacity: 0.55; }
+.tl-bar.is-guess { stroke: var(--border-strong); stroke-width: 1; stroke-dasharray: 3 2; }
+.tl-bar.is-crit { stroke: var(--danger); stroke-width: 1.5; stroke-dasharray: none; }
+.tl-bar-text { font-size: 11px; fill: var(--text-strong); pointer-events: none; }
+
+.tl-dep { fill: none; stroke: var(--text-faint); stroke-width: 1.2; stroke-dasharray: 4 3; pointer-events: none; }
+.tl-dep.is-crit { stroke: var(--danger); stroke-width: 1.6; stroke-dasharray: none; }
+.tl-arr { fill: var(--text-faint); }
+.tl-arr.is-crit { fill: var(--danger); }
+
+.tl-today { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.tl-today-tag { fill: var(--accent); }
+.tl-today-text { font-size: 10.5px; font-weight: 700; fill: var(--accent-ink); }
+.tl-due { stroke: var(--text-dim); stroke-width: 2; }
+.tl-due.is-late { stroke: var(--danger); }
+
+.tl-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 11.5px; color: var(--text-dim); }
+.tl-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.tl-sw { display: inline-block; width: 12px; height: 10px; border-radius: 3px; }
+.tl-sw.is-done { background: var(--status-complete); }
+.tl-sw.is-doing { background: var(--status-progress); }
+.tl-sw.is-waiting { background: var(--warning); opacity: 0.6; }
+.tl-sw.is-todo { background: var(--status-todo); }
+.tl-sw.is-critline { height: 0; border-top: 2px solid var(--danger); border-radius: 0; }
+.tl-sw.is-dueline { width: 2px; height: 12px; background: var(--text-dim); border-radius: 0; }
+.tl-hint { color: var(--text-faint); }

@@ -85,6 +85,7 @@
 .rs-stats .c-todo { color: var(--status-todo); }
 .rs-stats .c-prog { color: var(--status-progress); }
 .rs-stats .c-review { color: var(--status-review); }
+.rs-stats .c-rework { color: var(--danger); }
 .rs-stats .c-done { color: var(--status-complete); }
 
 /* ---------- ทีม ---------- */

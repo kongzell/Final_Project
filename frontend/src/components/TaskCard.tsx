@@ -363,7 +363,7 @@ export function TaskCard({
           <button
             type="button"
             className="cr-back"
-            title="Send back for rework — the card moves to In Progress"
+            title="Send back for rework — the card goes back to In Progress and turns red"
             onClick={() => onChangeStatus("in-progress")}
           >
             <IconPencil size={12} /> Rework

@@ -198,6 +198,8 @@ class CaseFileOut(ApiModel):
     deadline: date | None = None
     #: โปรเจคที่ใบนี้เกี่ยว — null = ไม่เกี่ยวโปรเจค ปุ่มแตกงานยังกดไม่ได้
     project_id: str | None = None
+    #: ชื่อโปรเจคนั้น — คนดูอาจไม่ได้อยู่ในโปรเจค เลยหาชื่อจากรายการโปรเจคของตัวเองไม่ได้
+    project_name: str | None = None
     filename: str
     content_type: str
     size: int

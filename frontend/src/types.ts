@@ -89,6 +89,8 @@ export type CaseFile = {
   deadline: string | null
   /** โปรเจคที่ใบนี้เกี่ยว — null = ไม่เกี่ยวโปรเจค */
   projectId: string | null
+  /** ชื่อโปรเจคนั้น — มีแม้ฉันไม่ได้อยู่ในโปรเจค */
+  projectName: string | null
   filename: string
   contentType: string
   size: number

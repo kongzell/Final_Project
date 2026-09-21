@@ -4,6 +4,7 @@ import {
   categoryColor, STATUSES, taskKey, taskPoints, WORKLOAD_CAPACITY, workloadLevel,
 } from "../types"
 import { Avatar } from "./Avatar"
+import { Timeline } from "./Timeline"
 import "./ProjectDashboard.css"
 
 const DAY = 86_400_000
@@ -123,6 +124,7 @@ export function ProjectPanel({ project, members, onOpenMember, onOpenTask }: Pro
   const busiestColumn = Math.max(1, ...counts.map((c) => c.n))
   const inProgress = counts.find((c) => c.id === "in-progress")?.n ?? 0
   const inReview = counts.find((c) => c.id === "review")?.n ?? 0
+  const inRework = open.filter((t) => t.needsRework).length
 
   const linked = tasks.filter((t) => t.branch !== null || t.reviewUrl !== null).length
   // ---- งานที่ยังค้าง แยกตามสาย ----
@@ -156,6 +158,8 @@ export function ProjectPanel({ project, members, onOpenMember, onOpenTask }: Pro
     })
   if (inReview > 0)
     alerts.push({ key: "review", tone: "info", text: `${inReview} card(s) waiting for review` })
+  if (inRework > 0)
+    alerts.push({ key: "rework", tone: "warn", text: `${inRework} card(s) sent back for rework` })
   if (noDue > 0)
     alerts.push({
       key: "nodue",
@@ -183,6 +187,12 @@ export function ProjectPanel({ project, members, onOpenMember, onOpenTask }: Pro
       </section>
 
       {/* ---------- ความเร็ว ---------- */}
+      {/* ---------- ไทม์ไลน์ ---------- */}
+      <section className="pd-card is-wide">
+        <h3 className="modal-h3">Timeline</h3>
+        <Timeline project={project} onOpenTask={onOpenTask} />
+      </section>
+
       <section className="pd-card">
         <h3 className="modal-h3">Delivery pace · last {WEEKS_SHOWN} weeks</h3>
         <div className="pd-weeks">

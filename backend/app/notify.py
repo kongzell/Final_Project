@@ -214,6 +214,20 @@ def task_overdue(project: Project, task: Task) -> tuple[str, str]:
     return subject, body + _footer(project)
 
 
+def task_reworked(project: Project, task: Task, who: str, reason: str, url: str | None) -> tuple[str, str]:
+    """GitHub ตีงานกลับ — การ์ดย้ายไป Rework โดยไม่มีใครกดในเว็บ คนรับงานต้องรู้"""
+    key = _task_key(project, task)
+    subject = f"[{project.name}] งาน {key} ถูกตีกลับ — {task.title}"
+    lines = [
+        f"{who} {reason} การ์ดกลับไปคอลัมน์ \"กำลังทำ\" และขึ้นป้าย Rework (ตีกลับครั้งที่ {task.rework_count})",
+        "",
+        f"  {key}  {task.title}",
+    ]
+    if url:
+        lines += ["", f"ดู PR: {url}"]
+    return subject, "\n".join(lines) + _footer(project)
+
+
 def task_claimed(project: Project, task: Task, who: Member) -> tuple[str, str]:
     key = _task_key(project, task)
     subject = f"[{project.name}] {who.name} รับงาน {key} แล้ว"

@@ -126,6 +126,19 @@ async def _readable_file(session: AsyncSession, case_id: str, file_id: str, me: 
     raise HTTPException(404, "File not found")
 
 
+async def _reload(session: AsyncSession, case_id: str) -> Case:
+    """โหลด Case ใหม่ทั้งก้อนหลัง commit — ต้องบอกให้โหลด files → project ซ้อนลงไปชัด ๆ
+    เพราะ session.refresh() ไม่ตามไปถึง relationship ชั้นใน แล้ว serialize จะไป lazy-load นอก greenlet และพัง"""
+    case = await session.scalar(
+        select(Case)
+        .where(Case.id == case_id)
+        .options(selectinload(Case.files).selectinload(CaseFile.project))
+        .execution_options(populate_existing=True)
+    )
+    assert case is not None
+    return case
+
+
 def _file_in(case: Case, file_id: str) -> CaseFile:
     f = next((x for x in case.files if x.id == file_id), None)
     if f is None:
@@ -192,7 +205,7 @@ async def create_case(
     case.members.append(me)
     session.add(case)
     await session.commit()
-    await session.refresh(case)
+    case = await _reload(session, case.id)
     return case_out(case)
 
 
@@ -217,7 +230,7 @@ async def update_case(
     case = await _get_managed_case(session, case_id, me)
     case.title = payload.title.strip()
     await session.commit()
-    await session.refresh(case)
+    case = await _reload(session, case.id)
     return case_out(case)
 
 
@@ -293,7 +306,7 @@ async def add_file(
 
     case.files.append(new_file)
     await session.commit()
-    await session.refresh(case)
+    case = await _reload(session, case.id)
 
     to = await notify.case_emails(session, case_id, exclude={me.id})
     if to:
@@ -339,7 +352,7 @@ async def update_file(
         f.overdue_notified_at = None
 
     await session.commit()
-    await session.refresh(case)
+    case = await _reload(session, case.id)
     return case_out(case)
 
 
@@ -443,7 +456,7 @@ async def create_request(
     )
     session.add(req)
     await session.commit()
-    await session.refresh(case)
+    case = await _reload(session, case.id)
 
     to = await notify.case_manager_emails(session, target, exclude={me.id})
     if to:
@@ -505,7 +518,7 @@ async def fulfill_request(
     req.resolved_by = me.id
     req.resolved_at = datetime.now(UTC)
     await session.commit()
-    await session.refresh(case)
+    case = await _reload(session, case.id)
 
     to = await notify.case_emails(session, requester.id, exclude={me.id})
     if to:
@@ -534,7 +547,7 @@ async def decline_request(
     req.resolved_by = me.id
     req.resolved_at = datetime.now(UTC)
     await session.commit()
-    await session.refresh(case)
+    case = await _reload(session, case.id)
 
     requester = await session.get(Case, req.from_case_id)
     to = await notify.case_emails(session, req.from_case_id, exclude={me.id}) if requester else []
@@ -563,7 +576,7 @@ async def cancel_request(
         raise HTTPException(409, f"This request is already {req.status}")
     await session.delete(req)
     await session.commit()
-    await session.refresh(case)
+    case = await _reload(session, case.id)
     return case_out(case)
 
 

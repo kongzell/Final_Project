@@ -73,6 +73,7 @@ function ProjectStats({ project, onOpen }: { project: Project; onOpen: () => voi
   const cards = project.tasks.filter((t) => !t.parentId)
   const done = project.tasks.filter((t) => t.status === "complete").length
   const doing = project.tasks.filter((t) => t.status === "in-progress").length
+  const rework = project.tasks.filter((t) => t.needsRework && t.status !== "complete").length
   const review = project.tasks.filter((t) => t.status === "review").length
   const todo = project.tasks.filter((t) => t.status === "todo").length
   const total = project.tasks.length
@@ -98,6 +99,7 @@ function ProjectStats({ project, onOpen }: { project: Project; onOpen: () => voi
         <div><dt>Main cards</dt><dd>{cards.length}</dd></div>
         <div><dt>To Do</dt><dd className="c-todo">{todo}</dd></div>
         <div><dt>In Progress</dt><dd className="c-prog">{doing}</dd></div>
+        <div><dt>Rework</dt><dd className="c-rework">{rework}</dd></div>
         <div><dt>In Review</dt><dd className="c-review">{review}</dd></div>
         <div><dt>Done</dt><dd className="c-done">{done}</dd></div>
         <div><dt>Estimated time</dt><dd>{hours ? `${hours.toFixed(1)} h` : "—"}</dd></div>

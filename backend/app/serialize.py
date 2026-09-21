@@ -47,6 +47,7 @@ def file_out(f: CaseFile) -> CaseFileOut:
         agency=f.agency,
         deadline=f.deadline,
         project_id=f.project_id,
+        project_name=f.project.name if f.project else None,
         filename=f.filename,
         content_type=f.content_type,
         size=f.size,

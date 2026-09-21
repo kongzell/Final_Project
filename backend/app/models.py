@@ -247,7 +247,7 @@ def apply_status_change(task: Task, new_status: str) -> None:
     if task.started_at is None and new_status != "todo":
         task.started_at = _now()
 
-    # ตีกลับจากรอตรวจ = ต้องแก้ · ส่งตรวจใหม่หรือปิดงาน = เลิกทำเครื่องหมาย
+    # ตีกลับจากรอตรวจ (คนกด Rework หรือ GitHub ขอแก้) = การ์ดแดง นับรอบแก้ · ส่งตรวจใหม่หรือปิดงาน = เลิกทำเครื่องหมาย
     # ถ้าถูกดึงกลับไปรอเริ่มยังคงธงไว้ เพราะงานก็ยังไม่ผ่านการตรวจอยู่ดี
     if task.status == "review" and new_status == "in-progress":
         task.needs_rework = True
