@@ -196,10 +196,19 @@
 .cg-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   margin-top: 4px;
   min-width: 0;
+  width: 100%;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
 }
+.cg-head:hover .cg-title { color: var(--text-strong); }
 
 .cg-title {
   font-size: 12.5px;

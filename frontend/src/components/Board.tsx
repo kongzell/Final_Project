@@ -4,7 +4,7 @@ import type { Complexity, Member, PriorityId, Project, StatusId, Task } from "..
 import { CATEGORIES, categoryColor, COMPLEXITIES, STATUSES, taskKey } from "../types"
 import type { Blocker } from "./TaskCard"
 import { TaskCard } from "./TaskCard"
-import { IconPlus } from "./Icons"
+import { IconChevronDown, IconChevronRight, IconPlus } from "./Icons"
 import "./Board.css"
 
 /** งานที่ใบนี้รออยู่ พร้อมบอกว่าเสร็จหรือยัง
@@ -58,6 +58,16 @@ export function Board({
   canManage,
   onClearFilters,
 }: Props) {
+  // งานเยอะแล้วรายการยาว — พับกลุ่มหัวข้อได้ ยุบไว้ที่เดียวกันทุกคอลัมน์ที่หัวข้อนั้นปรากฏ
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  const toggleGroup = (pid: string) =>
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev)
+      if (next.has(pid)) next.delete(pid)
+      else next.add(pid)
+      return next
+    })
+
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase()
     // งานย่อยขึ้นบอร์ดด้วย — จะได้เห็นว่างานไหนกำลังทำ/รอตรวจ/เสร็จแล้ว
@@ -172,14 +182,16 @@ export function Board({
                 const parent = project.tasks.find((p) => p.id === pid)
                 if (!parent) return null
                 const { done, total } = groupProgress(pid)
+                const collapsed = collapsedGroups.has(pid)
                 return (
                   <div className="col-group" key={pid}>
-                    <div className="cg-head" title={parent.title}>
+                    <button type="button" className="cg-head" title={parent.title} onClick={() => toggleGroup(pid)}>
+                      {collapsed ? <IconChevronRight size={12} /> : <IconChevronDown size={12} />}
                       <span className="cg-title">{parent.title}</span>
                       <span className="cg-line" />
                       <span className="cg-count">{done}/{total}</span>
-                    </div>
-                    {tasks.filter((t) => t.parentId === pid).map(renderCard)}
+                    </button>
+                    {!collapsed && tasks.filter((t) => t.parentId === pid).map(renderCard)}
                   </div>
                 )
               })}
