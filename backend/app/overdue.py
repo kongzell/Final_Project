@@ -87,7 +87,10 @@ async def _check_documents_once() -> None:
                 CaseFile.deadline <= soon,
                 CaseFile.status.in_(DOC_OPEN_STATUSES),
                 ~superseded,
-                or_(CaseFile.overdue_notified_at.is_(None), CaseFile.due_soon_notified_at.is_(None)),
+                or_(
+                    CaseFile.overdue_notified_at.is_(None),
+                    CaseFile.due_soon_notified_at.is_(None),
+                ),
             )
         )
         files = list(rows)

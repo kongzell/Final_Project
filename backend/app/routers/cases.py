@@ -16,7 +16,16 @@ import logging
 from datetime import UTC, date, datetime
 from urllib.parse import quote
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Response, UploadFile
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Response,
+    UploadFile,
+)
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -30,11 +39,11 @@ from app.schemas import (
     CaseCreate,
     CaseDirectoryEntry,
     CaseFileUpdate,
+    CaseOut,
+    CaseUpdate,
     DocumentRequestCreate,
     DocumentRequestDecline,
     DocumentRequestFulfill,
-    CaseOut,
-    CaseUpdate,
     FileBreakdownRequest,
     MemberRoleUpdate,
 )
@@ -128,7 +137,8 @@ async def _readable_file(session: AsyncSession, case_id: str, file_id: str, me: 
 
 async def _reload(session: AsyncSession, case_id: str) -> Case:
     """โหลด Case ใหม่ทั้งก้อนหลัง commit — ต้องบอกให้โหลด files → project ซ้อนลงไปชัด ๆ
-    เพราะ session.refresh() ไม่ตามไปถึง relationship ชั้นใน แล้ว serialize จะไป lazy-load นอก greenlet และพัง"""
+    เพราะ session.refresh() ไม่ตามไปถึง relationship ชั้นใน
+    แล้ว serialize จะไป lazy-load นอก greenlet และพัง"""
     case = await session.scalar(
         select(Case)
         .where(Case.id == case_id)
@@ -314,7 +324,10 @@ async def add_file(
         background.add_task(mailer.send, to, subject, body)
     else:
         candidates = len([m for m in case.members if m.id != me.id])
-        log.info("file_added %s — ไม่ส่งแจ้งเตือน: ผู้ที่ควรได้รับ %d คน แต่กรอกอีเมลไว้ 0 คน", new_file.filename, candidates)
+        log.info(
+            "file_added %s — ไม่ส่งแจ้งเตือน: ผู้ที่ควรได้รับ %d คน แต่กรอกอีเมลไว้ 0 คน",
+            new_file.filename, candidates,
+        )
 
     return case_out(case)
 
@@ -445,7 +458,9 @@ async def create_request(
     if target is None:
         raise HTTPException(404, f"Document {payload.to_case_id} not found")
 
-    project_id = (await _linkable_project(session, payload.project_id, me)).id if payload.project_id else None
+    project_id = None
+    if payload.project_id:
+        project_id = (await _linkable_project(session, payload.project_id, me)).id
     req = DocumentRequest(
         from_case_id=case.id,
         to_case_id=target.id,
@@ -463,7 +478,10 @@ async def create_request(
         subject, body = notify.document_requested(target, case, req, me)
         background.add_task(mailer.send, to, subject, body)
     else:
-        log.info("document_requested %s — ไม่ส่งแจ้งเตือน: เจ้าของ/admin ของ %s ไม่มีอีเมล", req.title, target.title)
+        log.info(
+            "document_requested %s — ไม่ส่งแจ้งเตือน: เจ้าของ/admin ของ %s ไม่มีอีเมล",
+            req.title, target.title,
+        )
     return case_out(case)
 
 
@@ -525,7 +543,10 @@ async def fulfill_request(
         subject, body = notify.document_request_resolved(requester, case, req, me)
         background.add_task(mailer.send, to, subject, body)
     else:
-        log.info("document_request_resolved %s — ไม่ส่งแจ้งเตือน: สมาชิกของ %s ไม่มีอีเมล", req.title, requester.title)
+        log.info(
+            "document_request_resolved %s — ไม่ส่งแจ้งเตือน: สมาชิกของ %s ไม่มีอีเมล",
+            req.title, requester.title,
+        )
     return case_out(case)
 
 
@@ -571,7 +592,9 @@ async def cancel_request(
     case = await _get_case(session, case_id, me)
     req = _request_in(case, request_id, incoming=False)
     if req.requested_by != me.id and not case.can_manage(me.id):
-        raise HTTPException(403, "Only the requester, the owner or an admin can cancel this request")
+        raise HTTPException(
+            403, "Only the requester, the owner or an admin can cancel this request"
+        )
     if req.status != "pending":
         raise HTTPException(409, f"This request is already {req.status}")
     await session.delete(req)

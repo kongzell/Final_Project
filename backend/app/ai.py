@@ -8,11 +8,10 @@
 import base64
 import json
 import logging
+from datetime import datetime
 
 import httpx
 from fastapi import HTTPException
-
-from datetime import datetime
 
 from app.config import LOCAL_TZ, get_settings
 from app.schemas import BreakdownResult, SubtaskSuggestion
@@ -101,8 +100,8 @@ summary is one sentence saying what the whole request is."""
 # ---------- กฎข้อ 1 กับข้อ 9 มีสองแบบ AI เลือกเองว่าจะใช้แบบไหนกับคำขอนี้ ----------
 
 #: ตัดตามฟีเจอร์ แต่ละใบใช้ได้จริงในตัวเอง (agile / user story)
-VERTICAL_SLICE = """Slice the work VERTICALLY, not by technical layer. Each subtask should be one thin
-   end-to-end capability a user or caller can actually exercise when it is done — it may
+VERTICAL_SLICE = """Slice the work VERTICALLY, not by technical layer. Each subtask should be
+   one thin end-to-end capability a user or caller can actually exercise when it is done — it may
    touch the database, the API and the UI all at once, and that is fine.
    Good: "Log in with email and password", "Show an error when the password is wrong",
    "Stay logged in after a refresh".
@@ -121,8 +120,8 @@ LAYERED_SLICE = """Slice the work BY TECHNICAL LAYER, from the bottom up: data m
    broad like "do the frontend\""""
 
 #: กฎข้อ 9 ท่อนท้ายสำหรับแบบฟีเจอร์ — ควรว่างเป็นส่วนใหญ่
-VERTICAL_DEPENDS = """Keep it minimal and real: a subtask depends on another only when starting it early
-   would be wasted work, not merely because it feels later in the plan.
+VERTICAL_DEPENDS = """Keep it minimal and real: a subtask depends on another only when starting
+   it early would be wasted work, not merely because it feels later in the plan.
    Slices that touch different features, screens or endpoints are independent — leave
    dependsOn empty so the team can work on them in parallel.
    Aim for most subtasks to have an empty dependsOn; a chain where every task waits for
@@ -302,7 +301,8 @@ async def breakdown(
             "any schedule or milestones in it. The request title above is only the name of "
             "the matter; do not invent work that the document does not ask for.\n"
         )
-        parts.append({"inline_data": {"mime_type": content_type, "data": base64.b64encode(data).decode()}})
+        encoded = base64.b64encode(data).decode()
+        parts.append({"inline_data": {"mime_type": content_type, "data": encoded}})
 
     prompt = PROMPT.format(
         title=title,

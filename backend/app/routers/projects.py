@@ -8,7 +8,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import mailer, notify
 from app.auth import require_member
 from app.db import get_session
-from app.models import Case, CaseFile, DocumentRequest, Member, Project, Task, project_members, task_assignees
+from app.models import (
+    Case,
+    CaseFile,
+    DocumentRequest,
+    Member,
+    Project,
+    Task,
+    project_members,
+    task_assignees,
+)
 from app.schemas import (
     MemberRoleUpdate,
     ProjectCreate,
@@ -277,7 +286,9 @@ async def create_task(
         except IntegrityError:
             await session.rollback()
             if attempt == 2:
-                raise HTTPException(409, "Could not create the task, the task number collided — please try again") from None
+                raise HTTPException(
+                    409, "Could not create the task, the task number collided — please try again"
+                ) from None
             continue
         await session.refresh(task)
 

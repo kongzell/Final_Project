@@ -13,7 +13,7 @@ from app.db import get_session
 from app.models import Member
 from app.passwords import hash_password, verify_password
 from app.routers.github import IMPORT_COLORS, auto_join_projects
-from app.schemas import AuthStatus, LoginIn, MeOut, MemberUpdate, RegisterIn
+from app.schemas import AuthStatus, LoginIn, MemberUpdate, MeOut, RegisterIn
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -95,7 +95,8 @@ async def login(
     member = await session.scalar(select(Member).where(Member.username == payload.username.lower()))
     # ข้อความเดียวกันไม่ว่าจะผิดตรงไหน — ไม่บอกว่ามี username นี้อยู่หรือไม่
     # และตรวจรหัสเสมอแม้หาคนไม่เจอ ให้เวลาตอบใกล้เคียงกันทั้งสองกรณี
-    if not verify_password(payload.password, member.password_hash if member else None) or member is None:
+    ok = verify_password(payload.password, member.password_hash if member else None)
+    if not ok or member is None:
         raise HTTPException(401, "Username or password is incorrect")
     _set_cookie(response, member.id, request)
     return member

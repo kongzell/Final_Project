@@ -81,7 +81,8 @@ async def update_task(
         # ปิดงานคือการตรวจรับ ซึ่งเป็นหน้าที่เจ้าของ สมาชิกส่งได้แค่ถึงรอตรวจ
         if data.get("status") == "complete":
             raise HTTPException(
-                403, "You can send work to review, but closing a task is up to the owner or an admin"
+                403,
+                "You can send work to review, but closing a task is up to the owner or an admin",
             )
 
     # ย้ายคอลัมน์แล้วไม่ได้สั่งลำดับมาด้วย -> ต่อท้ายคอลัมน์ปลายทาง
@@ -138,7 +139,9 @@ async def assign(
 
     # สมาชิกรับงานเข้าตัวเองได้ แต่มอบหมายให้คนอื่นเป็นเรื่องของเจ้าของ
     if not project.can_manage(me.id) and member_id != me.id:
-        raise HTTPException(403, "Only the project owner or an admin can assign work to someone else")
+        raise HTTPException(
+            403, "Only the project owner or an admin can assign work to someone else"
+        )
 
     member = await session.get(Member, member_id)
     if member is None:

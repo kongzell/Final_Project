@@ -6,7 +6,16 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.models import Case, CaseFile, DocumentRequest, Member, Project, Task, case_members, project_members
+from app.models import (
+    Case,
+    CaseFile,
+    DocumentRequest,
+    Member,
+    Project,
+    Task,
+    case_members,
+    project_members,
+)
 
 log = logging.getLogger("notify")
 
@@ -73,11 +82,15 @@ async def case_manager_emails(session: AsyncSession, case: Case, exclude: set[st
     ids = {case.owner_id, *case.admin_ids} - {None} - exclude
     if not ids:
         return []
-    rows = await session.scalars(select(Member.email).where(Member.id.in_(ids), Member.email.is_not(None)))
+    rows = await session.scalars(
+        select(Member.email).where(Member.id.in_(ids), Member.email.is_not(None))
+    )
     return [e for e in rows if e]
 
 
-def document_requested(to_case: Case, from_case: Case, req: DocumentRequest, who: Member) -> tuple[str, str]:
+def document_requested(
+    to_case: Case, from_case: Case, req: DocumentRequest, who: Member
+) -> tuple[str, str]:
     """มีทีมอื่นขอเอกสารจากที่เก็บนี้ — แจ้งเจ้าของ/admin ให้ไปเลือกไฟล์ส่ง"""
     subject = f"[{to_case.title}] {from_case.title} ขอเอกสาร: {req.title}"
     lines = [
@@ -88,8 +101,7 @@ def document_requested(to_case: Case, from_case: Case, req: DocumentRequest, who
     if req.note:
         lines.append(f"  หมายเหตุ: {req.note}")
     lines += ["", "เปิดที่เก็บแล้วเลือกไฟล์ส่งให้ หรือปฏิเสธพร้อมเหตุผลได้ที่แผง Requests"]
-    url = get_settings().app_url
-    return subject, "\n".join(lines) + f"\n\nเปิดหน้า Documents: {url}\n\n--\nอีเมลนี้ส่งอัตโนมัติจากระบบ 3work"
+    return subject, "\n".join(lines) + _document_footer()
 
 
 def _document_lines(f: CaseFile) -> list[str]:
@@ -131,18 +143,22 @@ def document_overdue(case: Case, f: CaseFile) -> tuple[str, str]:
     return subject, body + _document_footer()
 
 
-def document_request_resolved(from_case: Case, to_case: Case, req: DocumentRequest, who: Member) -> tuple[str, str]:
+def document_request_resolved(
+    from_case: Case, to_case: Case, req: DocumentRequest, who: Member
+) -> tuple[str, str]:
     """ผลคำขอกลับมาถึงผู้ขอ — ได้ไฟล์แล้ว หรือถูกปฏิเสธ"""
     if req.status == "fulfilled":
         subject = f"[{from_case.title}] ได้รับเอกสารแล้ว: {req.title}"
-        lines = [f"{who.name} ({to_case.title}) ส่งเอกสาร \"{req.title}\" เข้าที่เก็บ \"{from_case.title}\" แล้ว"]
+        lines = [
+            f"{who.name} ({to_case.title}) ส่งเอกสาร \"{req.title}\" "
+            f"เข้าที่เก็บ \"{from_case.title}\" แล้ว"
+        ]
     else:
         subject = f"[{from_case.title}] คำขอเอกสารถูกปฏิเสธ: {req.title}"
         lines = [f"{who.name} ({to_case.title}) ปฏิเสธคำขอเอกสาร \"{req.title}\""]
         if req.reply:
             lines += ["", f"  เหตุผล: {req.reply}"]
-    url = get_settings().app_url
-    return subject, "\n".join(lines) + f"\n\nเปิดหน้า Documents: {url}\n\n--\nอีเมลนี้ส่งอัตโนมัติจากระบบ 3work"
+    return subject, "\n".join(lines) + _document_footer()
 
 
 def file_added(case: Case, f: CaseFile, who: Member) -> tuple[str, str]:
@@ -161,9 +177,7 @@ def file_added(case: Case, f: CaseFile, who: Member) -> tuple[str, str]:
         lines.append(f"  จาก: {f.agency}")
     if f.deadline:
         lines.append(f"  กำหนดส่ง: {f.deadline.isoformat()}")
-    body = "\n".join(lines)
-    url = get_settings().app_url
-    return subject, body + f"\n\nเปิดหน้า Documents: {url}\n\n--\nอีเมลนี้ส่งอัตโนมัติจากระบบ 3work"
+    return subject, "\n".join(lines) + _document_footer()
 
 
 def _task_key(project: Project, task: Task) -> str:
@@ -214,12 +228,15 @@ def task_overdue(project: Project, task: Task) -> tuple[str, str]:
     return subject, body + _footer(project)
 
 
-def task_reworked(project: Project, task: Task, who: str, reason: str, url: str | None) -> tuple[str, str]:
-    """GitHub ตีงานกลับ — การ์ดย้ายไป Rework โดยไม่มีใครกดในเว็บ คนรับงานต้องรู้"""
+def task_reworked(
+    project: Project, task: Task, who: str, reason: str, url: str | None
+) -> tuple[str, str]:
+    """GitHub ตีงานกลับ — การ์ดกลับไปกำลังทำและติดป้าย Rework โดยไม่มีใครกดในเว็บ คนรับงานต้องรู้"""
     key = _task_key(project, task)
     subject = f"[{project.name}] งาน {key} ถูกตีกลับ — {task.title}"
     lines = [
-        f"{who} {reason} การ์ดกลับไปคอลัมน์ \"กำลังทำ\" และขึ้นป้าย Rework (ตีกลับครั้งที่ {task.rework_count})",
+        f"{who} {reason} การ์ดกลับไปคอลัมน์ \"กำลังทำ\" และขึ้นป้าย Rework "
+        f"(ตีกลับครั้งที่ {task.rework_count})",
         "",
         f"  {key}  {task.title}",
     ]

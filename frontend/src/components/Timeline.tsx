@@ -8,7 +8,6 @@ const DAY = 86_400_000
 const DAY_W = 26
 const ROW_H = 30
 const HEADER_H = 22
-const LABEL_W = 0
 const HEAD_H = 34
 
 const dayOf = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate())
@@ -187,8 +186,8 @@ export function Timeline({ project, onOpenTask }: Props) {
     () => visibleRows.filter((r): r is Extract<Row, { kind: "task" }> => r.kind === "task").map((r) => r.bar),
     [visibleRows],
   )
-  const x = (d: Date) => LABEL_W + daysBetween(first, d) * DAY_W
-  const w = LABEL_W + days * DAY_W
+  const x = (d: Date) => daysBetween(first, d) * DAY_W
+  const w = days * DAY_W
   const todayX = x(today)
 
   // เลื่อนให้เห็น "วันนี้" ตั้งแต่เปิด — งานที่รอเริ่มกองอยู่ตรงนั้น
@@ -285,9 +284,7 @@ export function Timeline({ project, onOpenTask }: Props) {
                   {` · ${daysBetween(b.start, b.end)} วัน${b.guessed ? "?" : ""}`}
                 </text>
                 {due && (
-                  <g>
-                    <line x1={x(due) + DAY_W} y1={y + 4} x2={x(due) + DAY_W} y2={y + ROW_H - 4} className={"tl-due" + (late ? " is-late" : "")} />
-                  </g>
+                  <line x1={x(due) + DAY_W} y1={y + 4} x2={x(due) + DAY_W} y2={y + ROW_H - 4} className={"tl-due" + (late ? " is-late" : "")} />
                 )}
               </g>
             )

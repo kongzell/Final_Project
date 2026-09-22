@@ -247,7 +247,8 @@ def apply_status_change(task: Task, new_status: str) -> None:
     if task.started_at is None and new_status != "todo":
         task.started_at = _now()
 
-    # ตีกลับจากรอตรวจ (คนกด Rework หรือ GitHub ขอแก้) = การ์ดแดง นับรอบแก้ · ส่งตรวจใหม่หรือปิดงาน = เลิกทำเครื่องหมาย
+    # ตีกลับจากรอตรวจ (คนกด Rework หรือ GitHub ขอแก้) = การ์ดแดง นับรอบแก้
+    # ส่งตรวจใหม่หรือปิดงาน = เลิกทำเครื่องหมาย
     # ถ้าถูกดึงกลับไปรอเริ่มยังคงธงไว้ เพราะงานก็ยังไม่ผ่านการตรวจอยู่ดี
     if task.status == "review" and new_status == "in-progress":
         task.needs_rework = True
@@ -392,8 +393,12 @@ class CaseFile(Base):
     )
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     #: ธงกันส่งอีเมลซ้ำ — ล้างเมื่อเลื่อนกำหนดส่งหรือเปิดเรื่องใหม่ (ดู routers/cases.py)
-    due_soon_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    overdue_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    due_soon_notified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    overdue_notified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     case: Mapped[Case] = relationship(back_populates="files")
     project: Mapped[Project | None] = relationship(lazy="selectin")
@@ -414,8 +419,12 @@ class DocumentRequest(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    from_case_id: Mapped[str] = mapped_column(String(36), ForeignKey("cases.id", ondelete="CASCADE"))
-    to_case_id: Mapped[str] = mapped_column(String(36), ForeignKey("cases.id", ondelete="CASCADE"))
+    from_case_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("cases.id", ondelete="CASCADE")
+    )
+    to_case_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("cases.id", ondelete="CASCADE")
+    )
     requested_by: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("members.id", ondelete="SET NULL"), nullable=True
     )

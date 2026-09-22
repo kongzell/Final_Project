@@ -553,7 +553,11 @@ async def webhook(
     # ถูกตีกลับจาก GitHub — คนรับงานต้องรู้ทันที เพราะไม่ได้เป็นคนกดเอง
     if status == "in-progress":
         who = (payload.get("sender") or {}).get("login") or "GitHub"
-        reason = "PR ถูกขอให้แก้ไข (Request changes)" if x_github_event == "pull_request_review" else "PR ถูกปิดโดยไม่ merge"
+        reason = (
+            "PR ถูกขอให้แก้ไข (Request changes)"
+            if x_github_event == "pull_request_review"
+            else "PR ถูกปิดโดยไม่ merge"
+        )
         for project, task in moved:
             to = await notify.emails_of(session, {m.id for m in task.assignees})
             if to:
