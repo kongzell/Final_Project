@@ -19,6 +19,27 @@
 .tl-label .tl-key { flex: none; font-family: var(--mono); font-size: 11px; color: var(--text-faint); }
 .tl-label .tl-title { font-size: 12.5px; color: var(--text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tl-label .tl-title.is-late { color: var(--warning); }
+
+/* แถวหัวข้อ (การ์ดหลัก) คั่นก่อนกลุ่มงานย่อยของมัน — บอกว่างานด้านล่างเป็นของหัวข้อไหน */
+.tl-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  background: var(--bg-hover);
+  border-bottom: 1px solid var(--border);
+  box-sizing: border-box;
+  min-width: 0;
+}
+.tl-group-title {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tl-group-ratio { margin-left: auto; flex: none; font-size: 10.5px; font-family: var(--mono); color: var(--text-faint); }
 .tl-scroll { flex: 1; min-width: 0; overflow-x: auto; }
 .tl-svg { display: block; font-family: inherit; }
 

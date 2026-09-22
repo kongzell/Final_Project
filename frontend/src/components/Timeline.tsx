@@ -6,6 +6,7 @@ import "./Timeline.css"
 const DAY = 86_400_000
 const DAY_W = 26
 const ROW_H = 30
+const HEADER_H = 22
 const LABEL_W = 0
 const HEAD_H = 34
 
@@ -30,6 +31,9 @@ type Bar = {
   critical: boolean
   deps: string[]
 }
+
+/** แถวบนไทม์ไลน์ — หัวข้อ (การ์ดหลัก) คั่นก่อนกลุ่มงานย่อยของมัน ให้รู้ว่างานแต่ละแถวเป็นของหัวข้อไหน */
+type Row = { kind: "header"; key: string; title: string; done: number; total: number } | { kind: "task"; bar: Bar }
 
 /** วางงานลงบนแกนเวลา — เสร็จแล้วใช้เวลาจริง กำลังทำใช้ started_at ยังไม่เริ่มต่อท้ายงานที่รอ
  *  แล้วหาเส้นทางวิกฤต: สายที่จบช้าที่สุด ไล่ย้อนตามงานที่ทำให้แต่ละใบต้องรอ */
@@ -100,20 +104,41 @@ function schedule(tasks: Task[], today: Date): Bar[] {
 type Props = { project: Project; onOpenTask: (id: string) => void }
 
 /** Gantt ของโปรเจค — ใช้ est / dependsOn / startedAt ที่ AI และระบบเก็บไว้ ไม่ต้องกรอกอะไรเพิ่ม
- *  แสดงเฉพาะงานที่ทำจริง (การ์ดหลักที่มีงานย่อยเป็นแค่หัวข้อ) */
+ *  แสดงเฉพาะงานที่ทำจริง (การ์ดหลักที่มีงานย่อยเป็นแค่หัวข้อ) — คั่นหัวข้อไว้เหนือกลุ่มงานย่อยของมัน */
 export function Timeline({ project, onOpenTask }: Props) {
   const today = useMemo(() => dayOf(new Date()), [])
-  const { bars, first, days, months } = useMemo(() => {
+  const { rows, first, days, months } = useMemo(() => {
     const hasChildren = new Set(project.tasks.filter((t) => t.parentId).map((t) => t.parentId as string))
     const leaves = project.tasks.filter((t) => !hasChildren.has(t.id))
     const scheduled = schedule(leaves, today)
     const parentOrder = new Map(project.tasks.filter((t) => !t.parentId).map((t, i) => [t.id, i]))
-    // เรียงตามการ์ดหลัก แล้วตามวันเริ่ม — งานที่ต่อกันจะอยู่ใกล้กัน
+    // เรียงตามการ์ดหลัก แล้วตามวันเริ่ม — งานที่ต่อกันจะอยู่ใกล้กัน กลุ่มเดียวกันจะติดกันเป็นก้อน
     scheduled.sort((a, b) =>
       (parentOrder.get(a.task.parentId ?? a.task.id) ?? 0) - (parentOrder.get(b.task.parentId ?? b.task.id) ?? 0)
       || a.start.getTime() - b.start.getTime()
       || a.task.number - b.task.number)
-    if (scheduled.length === 0) return { bars: [], first: today, days: 0, months: [] as { x: number; label: string }[] }
+
+    // แทรกแถวหัวข้อ (การ์ดหลัก) ก่อนกลุ่มงานย่อยของมันทุกครั้งที่หัวข้อเปลี่ยน
+    const rowsOut: Row[] = []
+    let lastParent: string | null = null
+    for (const b of scheduled) {
+      const pid = b.task.parentId
+      if (pid && pid !== lastParent) {
+        const parent = project.tasks.find((t) => t.id === pid)
+        const siblings = project.tasks.filter((t) => t.parentId === pid)
+        rowsOut.push({
+          kind: "header",
+          key: pid,
+          title: parent?.title ?? "—",
+          done: siblings.filter((t) => t.status === "complete").length,
+          total: siblings.length,
+        })
+      }
+      lastParent = pid ?? null
+      rowsOut.push({ kind: "task", bar: b })
+    }
+
+    if (scheduled.length === 0) return { rows: [] as Row[], first: today, days: 0, months: [] as { x: number; label: string }[] }
     let lo = scheduled.reduce((m, b) => (b.start < m ? b.start : m), today)
     let hi = scheduled.reduce((m, b) => (b.end > m ? b.end : m), today)
     for (const b of scheduled) if (b.task.dueDate) { const d = dayOf(new Date(b.task.dueDate + "T00:00:00")); if (d > hi) hi = d }
@@ -128,13 +153,23 @@ export function Timeline({ project, onOpenTask }: Props) {
       const d = addDays(lo, i)
       if (i === 0 || d.getDate() === 1) ms.push({ x: i * DAY_W, label: `${TH_MONTHS[d.getMonth()]} ${(d.getFullYear() + 543) % 100}` })
     }
-    return { bars: scheduled, first: lo, days: n, months: ms }
+    return { rows: rowsOut, first: lo, days: n, months: ms }
   }, [project.tasks, today])
 
+  // ตำแหน่ง y สะสม — หัวข้อเตี้ยกว่าแถวงาน จึงคำนวณทีละแถวแทนการคูณความสูงเดียวกันหมด
+  const { rowTop, h } = useMemo(() => {
+    const top = new Map<string, number>()
+    let y = HEAD_H
+    for (const r of rows) {
+      if (r.kind === "task") top.set(r.bar.task.id, y)
+      y += r.kind === "header" ? HEADER_H : ROW_H
+    }
+    return { rowTop: top, h: y + 8 }
+  }, [rows])
+
+  const bars = useMemo(() => rows.filter((r): r is Extract<Row, { kind: "task" }> => r.kind === "task").map((r) => r.bar), [rows])
   const x = (d: Date) => LABEL_W + daysBetween(first, d) * DAY_W
   const w = LABEL_W + days * DAY_W
-  const h = HEAD_H + bars.length * ROW_H + 8
-  const rowY = new Map(bars.map((b, i) => [b.task.id, HEAD_H + i * ROW_H]))
   const todayX = x(today)
 
   // เลื่อนให้เห็น "วันนี้" ตั้งแต่เปิด — งานที่รอเริ่มกองอยู่ตรงนั้น
@@ -144,7 +179,7 @@ export function Timeline({ project, onOpenTask }: Props) {
     if (el) el.scrollLeft = Math.max(0, todayX - el.clientWidth * 0.35)
   }, [todayX])
 
-  if (bars.length === 0) return <p className="pd-note">No tasks to plot yet</p>
+  if (rows.length === 0) return <p className="pd-note">No tasks to plot yet</p>
   const status = (b: Bar) =>
     b.task.status === "complete" ? "done" : b.task.startedAt ? "doing" : b.deps.length > 0 ? "waiting" : "todo"
 
@@ -155,12 +190,26 @@ export function Timeline({ project, onOpenTask }: Props) {
     <div className="tl">
       <div className="tl-body tl-body-scroll">
         <div className="tl-labels" style={{ paddingTop: HEAD_H }}>
-          {bars.map((b) => (
-            <button type="button" key={b.task.id} className="tl-label" style={{ height: ROW_H }} onClick={() => onOpenTask(b.task.id)} title={b.task.title}>
-              <span className="tl-key">{taskKey(project.taskPrefix, b.task.number)}</span>
-              <span className={"tl-title" + (isLate(b.task) ? " is-late" : "")}>{b.task.title}</span>
-            </button>
-          ))}
+          {rows.map((r) =>
+            r.kind === "header" ? (
+              <div key={r.key} className="tl-group" style={{ height: HEADER_H }} title={r.title}>
+                <span className="tl-group-title">{r.title}</span>
+                <span className="tl-group-ratio">{r.done}/{r.total}</span>
+              </div>
+            ) : (
+              <button
+                type="button"
+                key={r.bar.task.id}
+                className="tl-label"
+                style={{ height: ROW_H }}
+                onClick={() => onOpenTask(r.bar.task.id)}
+                title={r.bar.task.title}
+              >
+                <span className="tl-key">{taskKey(project.taskPrefix, r.bar.task.number)}</span>
+                <span className={"tl-title" + (isLate(r.bar.task) ? " is-late" : "")}>{r.bar.task.title}</span>
+              </button>
+            ),
+          )}
         </div>
       <div className="tl-scroll" ref={scroller}>
         <svg width={w} height={h} className="tl-svg" role="img" aria-label="Project timeline">
@@ -191,7 +240,7 @@ export function Timeline({ project, onOpenTask }: Props) {
 
           <g clipPath="url(#tl-clip)">
           {bars.map((b) => {
-            const y = rowY.get(b.task.id)!
+            const y = rowTop.get(b.task.id)!
             const bx = x(b.start)
             const bw = Math.max(DAY_W, x(b.end) - bx)
             const st = status(b)
@@ -221,8 +270,8 @@ export function Timeline({ project, onOpenTask }: Props) {
             b.deps.map((id) => {
               const from = bars.find((z) => z.task.id === id)
               if (!from) return null
-              const y1 = rowY.get(from.task.id)! + ROW_H / 2
-              const y2 = rowY.get(b.task.id)! + ROW_H / 2
+              const y1 = rowTop.get(from.task.id)! + ROW_H / 2
+              const y2 = rowTop.get(b.task.id)! + ROW_H / 2
               const x1 = x(from.end)
               const x2 = x(b.start)
               const crit = b.critical && from.critical
