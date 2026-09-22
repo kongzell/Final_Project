@@ -1,9 +1,10 @@
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import type { Member, Project, Task } from "../types"
 import {
   categoryColor, STATUSES, taskKey, taskPoints, WORKLOAD_CAPACITY, workloadLevel,
 } from "../types"
 import { Avatar } from "./Avatar"
+import { IconChevronDown, IconChevronRight } from "./Icons"
 import { Timeline } from "./Timeline"
 import "./ProjectDashboard.css"
 
@@ -111,6 +112,12 @@ type Props = {
 /** เนื้อของแท็บ "Project overview" — กรอบ modal อยู่ที่ Dashboard.tsx */
 export function ProjectPanel({ project, members, onOpenMember, onOpenTask }: Props) {
   const tasks = project.tasks
+  const [timelineOpen, setTimelineOpen] = useState(true)
+  // งานที่วาดบน Timeline จริง — การ์ดหลักที่มีงานย่อยเป็นแค่หัวข้อ ไม่นับซ้ำ (ตรรกะเดียวกับใน Timeline.tsx)
+  const timelineRows = useMemo(() => {
+    const hasChildren = new Set(tasks.filter((t) => t.parentId).map((t) => t.parentId as string))
+    return tasks.filter((t) => !hasChildren.has(t.id)).length
+  }, [tasks])
   const pace = useMemo(() => buildPace(tasks), [tasks])
   const closed = useMemo(() => buildClosed(tasks, members), [tasks, members])
 
@@ -187,10 +194,14 @@ export function ProjectPanel({ project, members, onOpenMember, onOpenTask }: Pro
       </section>
 
       {/* ---------- ความเร็ว ---------- */}
-      {/* ---------- ไทม์ไลน์ ---------- */}
+      {/* ---------- ไทม์ไลน์ — พับเก็บได้ เพราะยิ่งงานเยอะยิ่งแถวยาว ไม่อยากให้ดันแผงอื่นลงไปไกล ----------- */}
       <section className="pd-card is-wide">
-        <h3 className="modal-h3">Timeline</h3>
-        <Timeline project={project} onOpenTask={onOpenTask} />
+        <button type="button" className="pd-collapse-head" onClick={() => setTimelineOpen((v) => !v)}>
+          {timelineOpen ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
+          <h3 className="modal-h3">Timeline</h3>
+          <span className="pd-collapse-count">{timelineRows} tasks</span>
+        </button>
+        {timelineOpen && <Timeline project={project} onOpenTask={onOpenTask} />}
       </section>
 
       <section className="pd-card">

@@ -58,3 +58,6 @@
 .tl-sw.is-critline { height: 0; border-top: 2px solid var(--danger); border-radius: 0; }
 .tl-sw.is-dueline { width: 2px; height: 12px; background: var(--text-dim); border-radius: 0; }
 .tl-hint { color: var(--text-faint); }
+
+/* งานเยอะแล้วแถวจะสูงเกินจอ — จำกัดความสูงแล้วเลื่อนแนวตั้งพร้อมกันทั้งคอลัมน์ชื่อและกราฟ ไม่ดันแผงอื่นลงไปไกล */
+.tl-body-scroll { max-height: 340px; overflow-y: auto; align-items: stretch; }

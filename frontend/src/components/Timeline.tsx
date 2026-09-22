@@ -153,7 +153,7 @@ export function Timeline({ project, onOpenTask }: Props) {
 
   return (
     <div className="tl">
-      <div className="tl-body">
+      <div className="tl-body tl-body-scroll">
         <div className="tl-labels" style={{ paddingTop: HEAD_H }}>
           {bars.map((b) => (
             <button type="button" key={b.task.id} className="tl-label" style={{ height: ROW_H }} onClick={() => onOpenTask(b.task.id)} title={b.task.title}>
