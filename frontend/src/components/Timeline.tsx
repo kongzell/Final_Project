@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import type { Project, Task } from "../types"
 import { taskKey } from "../types"
+import { IconChevronDown, IconChevronRight } from "./Icons"
 import "./Timeline.css"
 
 const DAY = 86_400_000
@@ -107,6 +108,15 @@ type Props = { project: Project; onOpenTask: (id: string) => void }
  *  แสดงเฉพาะงานที่ทำจริง (การ์ดหลักที่มีงานย่อยเป็นแค่หัวข้อ) — คั่นหัวข้อไว้เหนือกลุ่มงานย่อยของมัน */
 export function Timeline({ project, onOpenTask }: Props) {
   const today = useMemo(() => dayOf(new Date()), [])
+  // งานเยอะแล้วรายการยาว — พับหัวข้อได้ ยุบเฉพาะแถวงาน หัวข้อเองยังอยู่ให้กดกางกลับได้
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  const toggleGroup = (pid: string) =>
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev)
+      if (next.has(pid)) next.delete(pid)
+      else next.add(pid)
+      return next
+    })
   const { rows, first, days, months } = useMemo(() => {
     const hasChildren = new Set(project.tasks.filter((t) => t.parentId).map((t) => t.parentId as string))
     const leaves = project.tasks.filter((t) => !hasChildren.has(t.id))
@@ -156,18 +166,27 @@ export function Timeline({ project, onOpenTask }: Props) {
     return { rows: rowsOut, first: lo, days: n, months: ms }
   }, [project.tasks, today])
 
+  // หัวข้อที่พับไว้ — ซ่อนเฉพาะแถวงานใต้มัน หัวข้อเองยังแสดงอยู่เพื่อกดกางกลับได้
+  const visibleRows = useMemo(
+    () => rows.filter((r) => r.kind === "header" || !r.bar.task.parentId || !collapsedGroups.has(r.bar.task.parentId)),
+    [rows, collapsedGroups],
+  )
+
   // ตำแหน่ง y สะสม — หัวข้อเตี้ยกว่าแถวงาน จึงคำนวณทีละแถวแทนการคูณความสูงเดียวกันหมด
   const { rowTop, h } = useMemo(() => {
     const top = new Map<string, number>()
     let y = HEAD_H
-    for (const r of rows) {
+    for (const r of visibleRows) {
       if (r.kind === "task") top.set(r.bar.task.id, y)
       y += r.kind === "header" ? HEADER_H : ROW_H
     }
     return { rowTop: top, h: y + 8 }
-  }, [rows])
+  }, [visibleRows])
 
-  const bars = useMemo(() => rows.filter((r): r is Extract<Row, { kind: "task" }> => r.kind === "task").map((r) => r.bar), [rows])
+  const bars = useMemo(
+    () => visibleRows.filter((r): r is Extract<Row, { kind: "task" }> => r.kind === "task").map((r) => r.bar),
+    [visibleRows],
+  )
   const x = (d: Date) => LABEL_W + daysBetween(first, d) * DAY_W
   const w = LABEL_W + days * DAY_W
   const todayX = x(today)
@@ -190,12 +209,20 @@ export function Timeline({ project, onOpenTask }: Props) {
     <div className="tl">
       <div className="tl-body tl-body-scroll">
         <div className="tl-labels" style={{ paddingTop: HEAD_H }}>
-          {rows.map((r) =>
+          {visibleRows.map((r) =>
             r.kind === "header" ? (
-              <div key={r.key} className="tl-group" style={{ height: HEADER_H }} title={r.title}>
+              <button
+                type="button"
+                key={r.key}
+                className="tl-group"
+                style={{ height: HEADER_H }}
+                title={r.title}
+                onClick={() => toggleGroup(r.key)}
+              >
+                {collapsedGroups.has(r.key) ? <IconChevronRight size={11} /> : <IconChevronDown size={11} />}
                 <span className="tl-group-title">{r.title}</span>
                 <span className="tl-group-ratio">{r.done}/{r.total}</span>
-              </div>
+              </button>
             ) : (
               <button
                 type="button"
