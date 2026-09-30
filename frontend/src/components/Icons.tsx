@@ -71,9 +71,6 @@ export const IconFile = ({ size = 16, className }: P) =>
 export const IconDownload = ({ size = 16, className }: P) =>
   svg(<><path d="M12 4v12" /><path d="m7 11 5 5 5-5" /><path d="M5 20h14" /></>, size, className)
 
-export const IconUpload = ({ size = 16, className }: P) =>
-  svg(<><path d="M12 16V4" /><path d="m7 9 5-5 5 5" /><path d="M5 20h14" /></>, size, className)
-
 export const IconLink = ({ size = 16, className }: P) =>
   svg(<><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1" /><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1" /></>, size, className)
 

@@ -26,8 +26,10 @@ USER_API = "https://api.github.com/user"
 #: repo       = จำเป็นสำหรับอ่าน collaborator ของ repo (GitHub บังคับ ไม่มี scope ที่แคบกว่านี้)
 SCOPES = "read:user read:org repo"
 
-#: เก็บ state ของ OAuth ไว้ในหน่วยความจำ พอสำหรับ single instance
-_pending_states: set[str] = set()
+#: state ของ OAuth เก็บใน cookie ของเบราว์เซอร์ที่กดล็อกอินเอง ไม่ใช่ในหน่วยความจำรวม
+#: ถ้าเก็บรวม คนร้ายเอาลิงก์ callback ของบัญชีตัวเองให้เหยื่อกด เหยื่อจะล็อกอินเป็นคนร้ายได้
+STATE_COOKIE = "3work_oauth_state"
+STATE_MAX_AGE = 10 * 60
 
 
 @router.get("/status", response_model=AuthStatus)
@@ -103,7 +105,7 @@ async def login(
 
 
 @router.get("/github")
-async def start_github() -> RedirectResponse:
+async def start_github(request: Request) -> RedirectResponse:
     settings = get_settings()
     if not settings.github_ready:
         raise HTTPException(
@@ -112,14 +114,24 @@ async def start_github() -> RedirectResponse:
             "create an OAuth App at https://github.com/settings/developers and put them in .env",
         )
     state = secrets.token_urlsafe(24)
-    _pending_states.add(state)
     params = {
         "client_id": settings.github_client_id,
         "redirect_uri": settings.github_callback_url,
         "scope": SCOPES,
         "state": state,
     }
-    return RedirectResponse(f"{AUTHORIZE}?{urlencode(params)}")
+    response = RedirectResponse(f"{AUTHORIZE}?{urlencode(params)}")
+    # SameSite=Lax ยังถูกส่งตอน GitHub redirect กลับมา เพราะเป็นการเปิดหน้าตรง ๆ แบบ GET
+    response.set_cookie(
+        STATE_COOKIE,
+        state,
+        max_age=STATE_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+        secure=request.url.scheme == "https",
+        path="/api/auth",
+    )
+    return response
 
 
 @router.get("/github/callback")
@@ -130,9 +142,9 @@ async def github_callback(
     session: AsyncSession = Depends(get_session),
 ) -> RedirectResponse:
     settings = get_settings()
-    if state not in _pending_states:
+    expected = request.cookies.get(STATE_COOKIE)
+    if not state or not expected or not secrets.compare_digest(state, expected):
         raise HTTPException(400, "Invalid state — please sign in again")
-    _pending_states.discard(state)
     if not code:
         raise HTTPException(400, "GitHub did not send a code back")
 
@@ -164,6 +176,8 @@ async def github_callback(
     await auto_join_projects(session, member)
     response = RedirectResponse(url="/", status_code=303)
     _set_cookie(response, member.id, request)
+    # ใช้แล้วทิ้ง — กันการเอา state เดิมมาใช้ซ้ำ
+    response.delete_cookie(STATE_COOKIE, path="/api/auth")
     return response
 
 

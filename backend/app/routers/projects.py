@@ -18,6 +18,7 @@ from app.models import (
     project_members,
     task_assignees,
 )
+from app.routers.github import require_push_access
 from app.schemas import (
     MemberRoleUpdate,
     ProjectCreate,
@@ -93,11 +94,12 @@ async def create_project(
     session: AsyncSession = Depends(get_session),
 ) -> ProjectOut:
     """คนสร้างเป็นเจ้าของ และถูกใส่เป็นสมาชิกไปด้วย ไม่งั้นจะมองไม่เห็นโปรเจคที่ตัวเองเพิ่งสร้าง"""
+    repo = await require_push_access(me, payload.github_repo) if payload.github_repo else None
     project = Project(
         name=payload.name,
-        github_repo=payload.github_repo,
+        github_repo=repo,
         owner_id=me.id,
-        task_prefix=_prefix_from_repo(payload.github_repo),
+        task_prefix=_prefix_from_repo(repo),
     )
     project.members.append(me)
     session.add(project)
@@ -115,6 +117,9 @@ async def update_project(
 ) -> ProjectOut:
     project = await _get_managed_project(session, project_id, me)
     data = payload.model_dump(exclude_unset=True)
+    new_repo = data.get("github_repo")
+    if new_repo and new_repo != project.github_repo:
+        data["github_repo"] = await require_push_access(me, new_repo)
     for field, value in data.items():
         setattr(project, field, value)
     await session.commit()

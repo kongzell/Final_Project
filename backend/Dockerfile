@@ -40,4 +40,5 @@ RUN useradd --create-home --uid 1000 app
 USER app
 EXPOSE 3000
 # รัน migration ให้ตารางตรงกับโค้ดก่อนเปิดรับ request เสมอ
-CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-3000}"]
+# เชื่อ X-Forwarded-Proto จาก nginx ข้างหน้า ให้ทำงานเหมือนบน Render — ไฟล์นี้ใช้กับ compose บนเครื่องเท่านั้น
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-3000} --proxy-headers --forwarded-allow-ips='*'"]

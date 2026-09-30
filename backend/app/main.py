@@ -16,6 +16,14 @@ from app.routers import ai, auth, cases, github, members, projects, system, task
 
 settings = get_settings()
 
+# ปล่อยให้รันบนเว็บจริงด้วย secret ค่า default ไม่ได้ — ค่านั้นอยู่ในโค้ด ใครก็ปลอม cookie ได้
+# ล้มตอนบูตแทน Render จะเสิร์ฟเวอร์ชันเก่าต่อจนกว่าจะตั้งค่าให้ถูก
+if settings.render and not settings.secrets_ready:
+    raise RuntimeError(
+        "SESSION_SECRET is missing or still the dev default — set a long random value "
+        "in the Render dashboard before deploying"
+    )
+
 # uvicorn ตั้ง handler ให้เฉพาะ logger ของตัวเอง logger ของแอปเราจึงเงียบสนิท
 # ตั้งแต่ระดับ INFO ลงมา ทำให้ log ของการแจ้งเตือนไม่โผล่ทั้งที่ทำงานอยู่
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s | %(message)s")

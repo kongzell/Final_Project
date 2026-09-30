@@ -7,6 +7,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 #: ใน container เองจะถูก override เป็น host `db` ผ่าน environment
 DEFAULT_DATABASE_URL = "postgresql://followup:followup@localhost:55432/followup"
 
+#: ค่านี้อยู่ในโค้ดสาธารณะ — ใครรู้ก็ปลอม cookie เป็นใครก็ได้ ใช้ได้แค่บนเครื่องตัวเอง
+DEV_SESSION_SECRET = "dev-secret-change-me"
+
 
 class Settings(BaseSettings):
     """ค่า config ทั้งหมดอ่านจาก environment (หรือไฟล์ .env ตอน dev)
@@ -60,15 +63,19 @@ class Settings(BaseSettings):
 
     # --- session ---
     #: ใช้เซ็น cookie — ตอน deploy จริงต้องเปลี่ยนเป็นค่าสุ่มยาว ๆ
-    session_secret: str = "dev-secret-change-me"
+    session_secret: str = DEV_SESSION_SECRET
     #: ใช้เข้ารหัส github_token ที่เก็บในฐานข้อมูล
     #: ถ้าไม่ตั้งจะยืม session_secret มาใช้ — แยกกันดีกว่าเพราะเปลี่ยนคนละจังหวะ
     token_secret: str = ""
 
+    #: Render ตั้ง RENDER=true ให้ทุก service เอง — ใช้แยกเว็บจริงออกจากเครื่อง dev
+    #: ไม่ดูจาก ENV เพราะ docker-compose.yml บนเครื่องก็ตั้ง ENV=production ไว้
+    render: bool = False
+
     @property
     def secrets_ready(self) -> bool:
         """true เมื่อไม่มี secret ตัวไหนยังเป็นค่า default ของ dev"""
-        return self.session_secret != "dev-secret-change-me"
+        return bool(self.session_secret) and self.session_secret != DEV_SESSION_SECRET
 
     @property
     def github_ready(self) -> bool:

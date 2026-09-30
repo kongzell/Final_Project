@@ -50,4 +50,6 @@ USER app
 EXPOSE 3000
 # รัน migration ให้ตารางตรงกับโค้ดก่อนเปิดรับ request เสมอ
 # Render กำหนดพอร์ตผ่าน $PORT ซึ่งเปลี่ยนได้ จึงต้องอ่านจาก env ไม่ fix ไว้
-CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-3000}"]
+# Render ปิด HTTPS ที่ proxy แล้วส่งต่อเป็น http — ต้องเชื่อ X-Forwarded-Proto ถึงจะรู้ว่าเป็น https
+# และตั้ง cookie แบบ Secure ได้ เชื่อทุก IP ได้เพราะ container นี้รับ request ผ่าน proxy ของ Render เท่านั้น
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-3000} --proxy-headers --forwarded-allow-ips='*'"]

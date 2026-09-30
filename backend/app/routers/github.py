@@ -205,6 +205,9 @@ async def _github_get(token: str, url: str, params: dict | None = None) -> list 
 
     if res.status_code == 401:
         raise HTTPException(401, "Your GitHub token expired — sign out and sign in again")
+    if res.status_code == 404:
+        # repo ส่วนตัวที่ไม่มีสิทธิ์เห็น GitHub ก็ตอบ 404 เหมือนไม่มี repo นั้น
+        raise HTTPException(404, "Repository not found — or your GitHub account cannot see it")
     if res.status_code == 403:
         raise HTTPException(
             403,
@@ -224,6 +227,30 @@ def _need_token(member: Member) -> str:
             "This account did not sign in through GitHub — sign out and use 'Sign in with GitHub'",
         )
     return token
+
+
+#: owner/name ตามกติกาชื่อของ GitHub — กันค่าแปลก ๆ อย่าง "../" ถูกต่อเข้า URL ของ API
+REPO_NAME = re.compile(r"^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$")
+
+
+def check_repo_name(repo: str) -> str:
+    if not REPO_NAME.match(repo) or ".." in repo:
+        raise HTTPException(422, "Repository must look like owner/name")
+    return repo
+
+
+async def require_push_access(member: Member, repo: str) -> str:
+    """ผูก repo กับโปรเจคได้เฉพาะคนที่ push ได้จริง — คืนชื่อตามตัวพิมพ์ที่ GitHub ใช้
+
+    ถ้าไม่ตรวจ ใครก็สร้างโปรเจคผูก repo ของทีมอื่นแล้วอ่าน commit/PR ของเขาผ่าน /events ได้
+    ใช้ชื่อที่ GitHub ตอบกลับ เพราะ webhook ส่งชื่อแบบนั้นมา ตัวพิมพ์ต่างกันจะจับคู่ไม่เจอ
+    """
+    data = await _github_get(
+        _need_token(member), f"https://api.github.com/repos/{check_repo_name(repo)}"
+    )
+    if not (data.get("permissions") or {}).get("push"):
+        raise HTTPException(403, "You need push access to link this repository")
+    return data["full_name"]
 
 
 async def _upsert_people(
@@ -337,6 +364,7 @@ async def import_collaborators(
     ต่างจาก org ตรงที่เห็นทุกคนที่ถูกเชิญเข้า repo แม้ยังไม่เคย commit
     """
     token = _need_token(member)
+    check_repo_name(repo)
     people = await _github_get(
         token, f"https://api.github.com/repos/{repo}/collaborators", {"per_page": 100}
     )
@@ -441,18 +469,15 @@ async def events(
     )
 
     # เติมรหัสกับชื่อของงานที่ AI เสนอ ให้หน้าเว็บแสดงได้โดยไม่ต้องยิงถามซ้ำทีละใบ
+    # เฉพาะงานของโปรเจคนี้ — repo เดียวกันอาจผูกหลายโปรเจค ห้ามเผยชื่องานของโปรเจคอื่น
     wanted = {r.suggested_task_id for r in rows if r.suggested_task_id}
     tasks: dict[str, tuple[str, str]] = {}
     if wanted:
         found = await session.scalars(
-            select(Task, Project)
-            .join(Project, Project.id == Task.project_id)
-            .where(Task.id.in_(wanted))
+            select(Task).where(Task.id.in_(wanted), Task.project_id == project.id)
         )
         for task in found:
-            project = await session.get(Project, task.project_id)
-            key = f"{project.task_prefix}-{task.number:03d}" if project else str(task.number)
-            tasks[task.id] = (key, task.title)
+            tasks[task.id] = (f"{project.task_prefix}-{task.number:03d}", task.title)
 
     out = []
     for r in rows:
@@ -524,12 +549,15 @@ async def webhook(
     settings = get_settings()
     body = await request.body()
 
-    if settings.github_webhook_secret:
-        expected = "sha256=" + hmac.new(
-            settings.github_webhook_secret.encode(), body, hashlib.sha256
-        ).hexdigest()
-        if not x_hub_signature_256 or not hmac.compare_digest(expected, x_hub_signature_256):
-            raise HTTPException(401, "Invalid signature")
+    # ไม่มี secret = พิสูจน์ไม่ได้ว่ามาจาก GitHub จริง — ปฏิเสธไว้ก่อน
+    # ไม่งั้นใครก็ยิง payload ปลอมมาย้ายการ์ดและสั่งส่งอีเมลได้โดยไม่ต้องล็อกอิน
+    if not settings.github_webhook_secret:
+        raise HTTPException(503, "GITHUB_WEBHOOK_SECRET is not set — webhooks are disabled")
+    expected = "sha256=" + hmac.new(
+        settings.github_webhook_secret.encode(), body, hashlib.sha256
+    ).hexdigest()
+    if not x_hub_signature_256 or not hmac.compare_digest(expected, x_hub_signature_256):
+        raise HTTPException(401, "Invalid signature")
 
     payload = await request.json()
     repo = (payload.get("repository") or {}).get("full_name")
