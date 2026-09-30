@@ -239,7 +239,10 @@ async def _upsert_member(session: AsyncSession, profile: dict, token: str) -> Me
 
     member.github_login = profile["login"]
     member.avatar_url = profile.get("avatar_url")
-    member.email = profile.get("email")
+    # เติมจาก GitHub เฉพาะตอนยังไม่มีอีเมล — ห้ามทับค่าที่ผู้ใช้ตั้งเองในเว็บ
+    # GitHub ส่ง null มาถ้าตั้งอีเมลเป็น private ทับแล้วแจ้งเตือนจะหยุดส่งแบบไม่มีใครรู้
+    if not member.email and profile.get("email"):
+        member.email = profile["email"]
     member.token = token
     await session.commit()
     await session.refresh(member)

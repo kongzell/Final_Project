@@ -388,6 +388,9 @@ async def download_file(
         headers={
             "Content-Disposition": f"inline; filename*=UTF-8''{quote(f.filename)}",
             "Cache-Control": "private, max-age=0",
+            # ชนิดไฟล์มาจากเบราว์เซอร์ของคนอัปโหลด ปลอมได้ — ห้ามเบราว์เซอร์เดาเอง
+            # ไม่งั้นไฟล์ HTML ที่แอบอ้างเป็น text/plain อาจถูกเปิดเป็นหน้าเว็บบนโดเมนเรา
+            "X-Content-Type-Options": "nosniff",
         },
     )
 

@@ -251,6 +251,13 @@ async def create_task(
         valid = set(rows)
         depends_on = [t for t in payload.depends_on if t in valid]
 
+    # การ์ดหลักต้องอยู่โปรเจคเดียวกัน — ไม่งั้นลบการ์ดในโปรเจคอื่นจะลากงานนี้หายไปด้วย (cascade)
+    # ปฏิเสธแทนการตัดทิ้งเงียบ ๆ เพราะงานย่อยจะกลายเป็นการ์ดลอยโดยไม่มีใครรู้
+    if payload.parent_id:
+        parent = await session.get(Task, payload.parent_id)
+        if parent is None or parent.project_id != project_id:
+            raise HTTPException(400, "The parent card is not in this project")
+
     # ไฟล์ต้นทางต้องมีจริง — id มั่วให้ตัดทิ้งเงียบ ๆ แบบเดียวกับ depends_on
     source_file_id = None
     if payload.source_file_id and await session.get(CaseFile, payload.source_file_id) is not None:
