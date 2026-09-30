@@ -55,6 +55,15 @@ project_members = Table(
     Column("role", String(10), nullable=False, default="member", server_default="member"),
 )
 
+#: คนที่เจ้าของ/admin เอาออกจากโปรเจค — ล็อกอินด้วย GitHub จะใส่คนที่ push repo ได้กลับเข้าโปรเจคเอง
+#: ถ้าไม่จำไว้ การเอาคนออกจะอยู่ได้แค่จนกว่าเขาจะล็อกอินรอบถัดไป ลบแถวนี้เมื่อมีคนเพิ่มกลับด้วยมือ
+project_removals = Table(
+    "project_removals",
+    Base.metadata,
+    Column("project_id", ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True),
+    Column("member_id", ForeignKey("members.id", ondelete="CASCADE"), primary_key=True),
+)
+
 task_assignees = Table(
     "task_assignees",
     Base.metadata,

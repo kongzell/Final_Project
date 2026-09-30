@@ -199,7 +199,9 @@ export function AiBreakdownModal({ projectName, source, onClose, onAdd }: Props)
               <h3 className="modal-h3">{result.summary}</h3>
               <ul className="ai-list">
                 {result.subtasks.map((s, i) => (
-                  <li key={`${s.title}-${i}`} className={`ai-item${picked.has(i) ? " is-picked" : ""}`}>
+                  // key ตามลำดับ ไม่ใช่ชื่องาน — ชื่อเปลี่ยนทุกครั้งที่พิมพ์ แถวจะถูกสร้างใหม่จนพิมพ์ไม่ได้
+                  // รายการนี้ไม่ถูกลบหรือสลับลำดับ ใช้ index ได้ปลอดภัย
+                  <li key={i} className={`ai-item${picked.has(i) ? " is-picked" : ""}`}>
                     <button
                       type="button"
                       className="ai-check"
@@ -327,6 +329,9 @@ function SubtaskForm({
   onChange: (change: Partial<SubtaskSuggestion>) => void
   onDone: () => void
 }) {
+  // เก็บข้อความที่พิมพ์ไว้ตรง ๆ — ถ้าสร้างจาก tags ใหม่ทุกครั้ง จุลภาคที่เพิ่งพิมพ์จะหายทันที
+  const [tagText, setTagText] = useState(() => value.tags.join(", "))
+
   return (
     <div className="ai-form" onKeyDown={(e) => e.key === "Escape" && onDone()}>
       <input
@@ -381,12 +386,13 @@ function SubtaskForm({
 
       <input
         className="ai-in"
-        value={value.tags.join(", ")}
+        value={tagText}
         placeholder="Skills needed, e.g. React, PostgreSQL"
-        // แยกด้วยจุลภาคหรือเว้นวรรคก็ได้ เหมือนฟอร์มเพิ่มงานบนบอร์ด
-        onChange={(e) =>
-          onChange({ tags: e.target.value.split(/[,\s]+/).map((t) => t.trim()).filter(Boolean) })
-        }
+        // แยกด้วยจุลภาคเท่านั้น — tag ที่ AI ให้มาหลายตัวมีเว้นวรรค เช่น "REST API", "Tailwind CSS"
+        onChange={(e) => {
+          setTagText(e.target.value)
+          onChange({ tags: e.target.value.split(",").map((t) => t.trim()).filter(Boolean) })
+        }}
       />
 
       <textarea

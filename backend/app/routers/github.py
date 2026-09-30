@@ -17,7 +17,14 @@ from app import ai, mailer, notify
 from app.auth import require_member
 from app.config import get_settings
 from app.db import SessionLocal, get_session
-from app.models import Member, Project, Task, WebhookEvent, apply_status_change
+from app.models import (
+    Member,
+    Project,
+    Task,
+    WebhookEvent,
+    apply_status_change,
+    project_removals,
+)
 from app.schemas import (
     CommitOut,
     GithubRepo,
@@ -170,6 +177,10 @@ async def _suggest_matches(repo: str | None, event_ids: list[str]) -> None:
         await session.commit()
 
 
+#: action ของ pull_request ที่แปลว่ามีโค้ดส่งเข้าคิวตรวจ — synchronize = push เพิ่มเข้า PR เดิม
+PR_SENT_FOR_REVIEW = {"opened", "reopened", "synchronize", "ready_for_review"}
+
+
 def _target_status(event: str, payload: dict) -> str | None:
     """สถานะปลายทางของการ์ดที่ event นี้อ้างถึง — None = event นี้ไม่ย้ายการ์ด
 
@@ -178,12 +189,21 @@ def _target_status(event: str, payload: dict) -> str | None:
     การ merge เข้า main ทำได้เฉพาะคนที่ ruleset อนุญาต ซึ่งตั้งไว้ให้เป็นเจ้าของ repo
     การปิดงานอัตโนมัติจึงเท่ากับเจ้าของกดรับงานเอง
     """
+    action = payload.get("action")
     if event == "pull_request":
         pr = payload.get("pull_request") or {}
-        if payload.get("action") == "closed":
+        if action == "closed":
             return "complete" if pr.get("merged") else "in-progress"
-        return "review"
+        # เฉพาะเหตุการณ์ที่มีโค้ดส่งเข้ามาตรวจจริง — ติด label, แก้ชื่อ, ขอ reviewer ไม่นับ
+        # ไม่งั้นการ์ดที่เพิ่งถูกตีกลับจะเด้งกลับไปรอตรวจและป้าย Rework หายทั้งที่ยังไม่ได้แก้อะไร
+        # PR แบบ draft ยังไม่พร้อมให้ตรวจ — รอจนกด Ready for review
+        if action in PR_SENT_FOR_REVIEW and not pr.get("draft"):
+            return "review"
+        return None
     if event == "pull_request_review":
+        # แก้ข้อความ review เดิม (action "edited") ไม่ใช่การตีกลับรอบใหม่ — ไม่งั้นนับซ้ำและส่งอีเมลซ้ำ
+        if action != "submitted":
+            return None
         state = ((payload.get("review") or {}).get("state") or "").lower()
         return "in-progress" if state == "changes_requested" else None
     if event == "push":
@@ -319,7 +339,13 @@ async def auto_join_projects(session: AsyncSession, member: Member) -> list[str]
         return []
 
     joined: list[str] = []
-    projects = await session.scalars(select(Project).where(Project.github_repo.in_(repos)))
+    # ข้ามโปรเจคที่เจ้าของเคยเอาคนนี้ออก — ไม่งั้นการเอาออกจะอยู่ได้แค่จนกว่าเขาจะล็อกอินอีกรอบ
+    removed = select(project_removals.c.project_id).where(
+        project_removals.c.member_id == member.id
+    )
+    projects = await session.scalars(
+        select(Project).where(Project.github_repo.in_(repos), Project.id.not_in(removed))
+    )
     for project in projects:
         if member.id not in {m.id for m in project.members}:
             project.members.append(member)

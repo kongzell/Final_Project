@@ -234,15 +234,15 @@ async def _upsert_member(session: AsyncSession, profile: dict, token: str) -> Me
             role="Member",
             color="#7b68ee",
             github_id=github_id,
+            # เติมจาก GitHub แค่ตอนสร้างบัญชี หลังจากนั้นอีเมลเป็นของผู้ใช้ตั้งเองในเว็บ
+            # ถ้าเติมทุกครั้งที่ล็อกอิน คนที่ลบอีเมลเพื่อเลิกรับแจ้งเตือนจะได้อีเมลกลับมาเอง
+            # และคนที่ตั้งอีเมล private บน GitHub จะโดนทับเป็นว่างจนแจ้งเตือนหยุดส่ง
+            email=profile.get("email"),
         )
         session.add(member)
 
     member.github_login = profile["login"]
     member.avatar_url = profile.get("avatar_url")
-    # เติมจาก GitHub เฉพาะตอนยังไม่มีอีเมล — ห้ามทับค่าที่ผู้ใช้ตั้งเองในเว็บ
-    # GitHub ส่ง null มาถ้าตั้งอีเมลเป็น private ทับแล้วแจ้งเตือนจะหยุดส่งแบบไม่มีใครรู้
-    if not member.email and profile.get("email"):
-        member.email = profile["email"]
     member.token = token
     await session.commit()
     await session.refresh(member)

@@ -2,6 +2,7 @@ import re
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import delete, func, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +17,7 @@ from app.models import (
     Project,
     Task,
     project_members,
+    project_removals,
     task_assignees,
 )
 from app.routers.github import require_push_access
@@ -183,6 +185,13 @@ async def add_member(
         raise HTTPException(404, f"Member {member_id} not found")
     if member.id not in {m.id for m in project.members}:
         project.members.append(member)
+        # เพิ่มกลับด้วยมือ = ยกเลิกการเอาออก ต่อไปล็อกอินด้วย GitHub ก็เข้าโปรเจคเองได้ตามปกติ
+        await session.execute(
+            delete(project_removals).where(
+                project_removals.c.project_id == project_id,
+                project_removals.c.member_id == member.id,
+            )
+        )
         await session.commit()
 
 
@@ -209,6 +218,12 @@ async def remove_member(
             project_members.c.project_id == project_id,
             project_members.c.member_id == member_id,
         )
+    )
+    # จำไว้ ไม่งั้นล็อกอินด้วย GitHub รอบถัดไป auto_join_projects จะใส่เขากลับเข้ามาเอง
+    await session.execute(
+        pg_insert(project_removals)
+        .values(project_id=project_id, member_id=member_id)
+        .on_conflict_do_nothing()
     )
 
     # งานที่เคยเป็นของเขาและตอนนี้ไม่เหลือใครถือ ให้กลับไปรอเริ่ม

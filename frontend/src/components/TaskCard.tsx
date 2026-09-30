@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import type { Member, PriorityId, StatusId, Task } from "../types"
 import {
   CATEGORIES, categoryColor, codeLink, COMPLEXITIES, formatDuration, isOverdue, PRIORITIES,
@@ -325,12 +325,7 @@ export function TaskCard({
             {(close) => (
               <>
                 <MenuLabel>Due date</MenuLabel>
-                <input
-                  type="date"
-                  className="menu-date"
-                  value={task.dueDate ?? ""}
-                  onChange={(e) => onSetDue(e.target.value || null)}
-                />
+                <DueDateInput value={task.dueDate} onSave={onSetDue} />
                 <MenuItem onClick={() => { onSetDue(null); close() }}>Clear date</MenuItem>
               </>
             )}
@@ -556,5 +551,50 @@ export function TaskCard({
         </div>
       )}
     </article>
+  )
+}
+
+/** ปีที่ต่ำกว่านี้ถือว่ายังพิมพ์ไม่ครบ — ช่องวันที่ของเบราว์เซอร์ให้ค่า 0002, 0020, 0202 ระหว่างพิมพ์ 2026 */
+const MIN_YEAR = 1900
+
+/** ช่องกำหนดส่งที่บันทึกเมื่อพิมพ์เสร็จ ไม่ใช่ทุกครั้งที่กดแป้น
+ *
+ *  ถ้ายิงบันทึกทุก onChange ปีจะถูกบันทึกเป็น 0002 → 0020 → 0202 → 2026 หลายคำขอซ้อนกัน
+ *  ซึ่งกลับมาไม่เรียงลำดับได้ บันทึกตอนออกจากช่อง กด Enter หรือเมนูปิด แทน
+ */
+function DueDateInput({ value, onSave }: { value: string | null; onSave: (date: string | null) => void }) {
+  const [draft, setDraft] = useState(value ?? "")
+  // ค่าที่ส่งบันทึกไปล่าสุด — กันยิงซ้ำเมื่อ blur แล้วตามด้วยเมนูปิด
+  const sent = useRef(value ?? "")
+  const commitOnClose = useRef(() => {})
+
+  const commit = (d: string) => {
+    if (d === sent.current) return
+    if (d === "") {
+      sent.current = d
+      onSave(null)
+    } else if (/^\d{4}-\d{2}-\d{2}$/.test(d) && Number(d.slice(0, 4)) >= MIN_YEAR) {
+      sent.current = d
+      onSave(d)
+    }
+  }
+
+  // เมนูอาจถูกปิดโดยไม่มี blur (เช่นกด Esc) — บันทึกค่าที่เลือกไว้ก่อนช่องหายไป
+  useEffect(() => {
+    commitOnClose.current = () => commit(draft)
+  })
+  useEffect(() => () => commitOnClose.current(), [])
+
+  return (
+    <input
+      type="date"
+      className="menu-date"
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => commit(draft)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") commit(draft)
+      }}
+    />
   )
 }
