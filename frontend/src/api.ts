@@ -45,10 +45,37 @@ export class ApiError extends Error {
 /** true เมื่อ error เกิดจากยังไม่ได้ล็อกอิน — ไม่ใช่ความผิดพลาดที่ต้องเตือน */
 export const isUnauthorized = (e: unknown) => e instanceof ApiError && e.status === 401
 
+/** หนึ่งรายการใน detail ของ 422 ที่ FastAPI/Pydantic ส่งมา */
+type FieldError = { loc?: (string | number)[]; msg?: string; type?: string; ctx?: Record<string, unknown> }
+
+/** แปลง error ของ Pydantic เป็นประโยคที่ผู้ใช้อ่านรู้เรื่อง แทน "Server responded with 422" */
+function describeFieldError(e: FieldError): string {
+  const field = String(e.loc?.[e.loc.length - 1] ?? "value")
+  const label = field.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ")
+  const name = label.charAt(0).toUpperCase() + label.slice(1).toLowerCase()
+  switch (e.type) {
+    case "missing":
+      return `${name} is required`
+    case "string_too_short":
+      return `${name} must be at least ${e.ctx?.min_length} characters`
+    case "string_too_long":
+      return `${name} must be at most ${e.ctx?.max_length} characters`
+    case "string_pattern_mismatch":
+      return field === "username"
+        ? "Username can only use letters, numbers, dot (.), dash (-) and underscore (_)"
+        : `${name} has an invalid format`
+    default:
+      return e.msg ? `${name}: ${e.msg}` : `${name} is invalid`
+  }
+}
+
 async function readError(res: Response): Promise<string> {
   try {
     const body = await res.json()
     if (typeof body?.detail === "string") return body.detail
+    if (Array.isArray(body?.detail) && body.detail.length > 0) {
+      return (body.detail as FieldError[]).map(describeFieldError).join(" · ")
+    }
   } catch {
     /* ไม่ใช่ JSON ก็ปล่อยไปใช้ข้อความมาตรฐาน */
   }

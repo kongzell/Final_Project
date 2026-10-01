@@ -14,10 +14,15 @@
   min-height: 62px;
 }
 
-.tb-crumbs { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.tb-crumbs { display: flex; align-items: center; gap: 9px; min-width: 0; flex: 0 1 auto; }
 
-/* เมนูโปรเจคต้องไม่ถูกบีบจนชื่อหาย ให้แถวตกบรรทัดแทน */
-.tb-crumbs .menu-wrap { flex: none; }
+/* ชื่อโปรเจคยาวให้ตัดเป็น … แทนการดันจำนวนงาน/ปุ่มดาวไปซ่อนใต้แผงขวา
+   ทุกชั้นต้องมี min-width:0 ไม่งั้น flex ไม่ยอมหดต่ำกว่าความยาวข้อความ */
+.tb-crumbs .menu-wrap { flex: 0 1 auto; min-width: 0; max-width: 100%; }
+.tb-crumbs .menu-trigger { min-width: 0; max-width: 100%; }
+.tb-crumb-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tb-crumb-current { min-width: 0; max-width: min(46vw, 640px); }
+.tb-crumb-current svg { flex: none; }
 
 .tb-crumb {
   display: inline-flex;

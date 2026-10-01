@@ -526,8 +526,8 @@ function DocCard({
         </p>
       )}
 
-      <a className="file-card-name" href={caseFileUrl(caseId, f.id)} target="_blank" rel="noreferrer" title="Open">
-        <IconFile size={14} /> {f.filename}
+      <a className="file-card-name" href={caseFileUrl(caseId, f.id)} target="_blank" rel="noreferrer" title={`Open ${f.filename}`}>
+        <IconFile size={14} /> <span className="file-card-name-text">{f.filename}</span>
       </a>
       <p className="file-card-meta">
         {formatBytes(f.size)} · {uploader} · {fmtDate(f.uploadedAt)}

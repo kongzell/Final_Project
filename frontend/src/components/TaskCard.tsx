@@ -176,7 +176,15 @@ export function TaskCard({
                 ))}
 
                 {canManage && (
-                  <MenuItem danger onClick={() => { onDelete(); close() }}>
+                  <MenuItem
+                    danger
+                    onClick={() => {
+                      close()
+                      // ลบแล้วกู้ไม่ได้ และงานย่อยหายตามไปด้วย (cascade) — ถามก่อนเสมอ
+                      const extra = subtasks.length > 0 ? ` Its ${subtasks.length} subtask(s) will be deleted too.` : ""
+                      if (window.confirm(`Delete ${taskKey(taskPrefix, task.number)} "${task.title}"?${extra} This cannot be undone.`)) onDelete()
+                    }}
+                  >
                     <IconTrash size={14} /> Delete task
                   </MenuItem>
                 )}

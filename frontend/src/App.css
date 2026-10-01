@@ -28,7 +28,21 @@
   color: var(--danger);
   font-size: 13.5px;
   box-shadow: var(--shadow);
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
+.sync-error-close,
+.sync-error-retry {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.sync-error-close { display: grid; place-items: center; padding: 2px; border-radius: 4px; }
+.sync-error-retry { font-weight: 600; text-decoration: underline; text-underline-offset: 3px; padding: 0; }
 
 .empty-projects {
   flex: 1;
@@ -53,8 +67,23 @@
 .empty-form { display: flex; gap: 8px; }
 .empty-form .field-input { width: 220px; }
 
+/* จอแคบ แถบซ้ายลอยทับบอร์ดแทนการซ่อนทิ้ง — เปิด/ปิดด้วยปุ่มเดิม (Expand / Collapse sidebar)
+   ถ้าซ่อนด้วย display:none ปุ่ม Expand จะกดแล้วไม่มีอะไรเกิดขึ้น และเข้า New Project / Documents ไม่ได้ */
 @media (max-width: 900px) {
-  .sidebar { display: none; }
+  .sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 70;
+    max-width: calc(100vw - 32px);
+    box-shadow: var(--shadow);
+  }
+}
+/* ปุ่มเปิดแผงขวาโผล่เฉพาะตอนที่แผงขวาถูกซ่อน */
+.tb-panel-btn { display: none; }
+@media (max-width: 1180px) {
+  .tb-panel-btn { display: inline-flex; }
 }
 
 /* ป้ายเจ้าของโปรเจค — แยกจาก member.role ที่เป็นสายงาน (Frontend/Backend/...)

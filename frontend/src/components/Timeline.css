@@ -2,7 +2,8 @@
 
 .tl { display: flex; flex-direction: column; gap: 8px; }
 .tl-body { display: flex; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-app); overflow: hidden; }
-.tl-labels { flex: 0 0 210px; display: flex; flex-direction: column; border-right: 1px solid var(--border); box-sizing: border-box; }
+/* min-width:0 + overflow สำคัญ — ไม่งั้นชื่อหัวข้อยาว ๆ ดันคอลัมน์นี้กว้างตามข้อความจนกราฟเหลือนิดเดียว */
+.tl-labels { flex: 0 0 210px; width: 210px; min-width: 0; overflow: hidden; display: flex; flex-direction: column; border-right: 1px solid var(--border); box-sizing: border-box; }
 .tl-label {
   display: flex;
   align-items: center;
@@ -17,7 +18,7 @@
 }
 .tl-label:hover { background: var(--bg-hover); }
 .tl-label .tl-key { flex: none; font-family: var(--mono); font-size: 11px; color: var(--text-faint); }
-.tl-label .tl-title { font-size: 12.5px; color: var(--text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl-label .tl-title { min-width: 0; font-size: 12.5px; color: var(--text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tl-label .tl-title.is-late { color: var(--warning); }
 
 /* แถวหัวข้อ (การ์ดหลัก) คั่นก่อนกลุ่มงานย่อยของมัน — กดพับ/กางงานย่อยใต้หัวข้อได้ */
@@ -39,6 +40,8 @@
 }
 .tl-group:hover .tl-group-title { color: var(--text-strong); }
 .tl-group-title {
+  min-width: 0;
+  flex: 1 1 auto;
   font-size: 11.5px;
   font-weight: 600;
   color: var(--text-dim);

@@ -25,6 +25,11 @@ export function LoginScreen({ githubReady, signupOpen, onSignedIn }: Props) {
 
   const submit = async () => {
     if (busy) return
+    // กติกาเดียวกับฝั่งเซิร์ฟเวอร์ (schemas.RegisterIn) — บอกทันทีโดยไม่ต้องรอรอบส่ง
+    if (mode === "register" && !/^[A-Za-z0-9._-]{3,40}$/.test(username.trim())) {
+      setError("Username can only use letters, numbers, dot (.), dash (-) and underscore (_), 3-40 characters")
+      return
+    }
     setBusy(true)
     setError(null)
     try {
@@ -102,7 +107,7 @@ export function LoginScreen({ githubReady, signupOpen, onSignedIn }: Props) {
           </label>
         )}
 
-        {error && <p className="modal-error">{error}</p>}
+        {error && <p className="modal-error" role="alert">{error}</p>}
 
         <button type="submit" className="btn btn-primary login-submit" disabled={!canSubmit || busy}>
           {busy ? "Please wait..." : mode === "login" ? "Sign in" : "Create account"}

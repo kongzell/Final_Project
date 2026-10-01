@@ -23,21 +23,33 @@ import { LoginScreen } from "./components/LoginScreen"
 import { RightSidebar } from "./components/RightSidebar"
 import { Sidebar } from "./components/Sidebar"
 import { Topbar } from "./components/Topbar"
-import { IconGithub, IconSparkle } from "./components/Icons"
+import { IconClose, IconGithub, IconSparkle } from "./components/Icons"
 import "./App.css"
+
+/** ต่ำกว่าความกว้างนี้แถบซ้ายลอยทับบอร์ดแทนการกินพื้นที่ — ต้องตรงกับ @media ใน App.css */
+const NARROW_SIDEBAR = 900
 
 export type Filters = { assigneeId: string | null; priority: PriorityId | null }
 
 export default function App() {
   const [projects, setProjects] = useState<Project[]>([])
   const [syncError, setSyncError] = useState<string | null>(null)
+  /** โหลดข้อมูลไม่สำเร็จ — แยกจาก syncError (บันทึกไม่สำเร็จ) เพราะข้อความและทางแก้ต่างกัน */
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [allMembers, setAllMembers] = useState<Member[]>([])
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
   const [memberModalOpen, setMemberModalOpen] = useState(false)
   const [projectModalOpen, setProjectModalOpen] = useState(false)
   const [query, setQuery] = useState("")
   const [filters, setFilters] = useState<Filters>({ assigneeId: null, priority: null })
-  const [collapsed, setCollapsed] = useState(false)
+  // จอแคบเริ่มแบบพับไว้ — แถบซ้ายจะลอยทับบอร์ด เปิดเองเมื่ออยากใช้
+  const [collapsed, setCollapsed] = useState(() => window.innerWidth <= NARROW_SIDEBAR)
+  /** แผงขวาแบบลิ้นชัก — ใช้เฉพาะจอแคบที่แผงขวาถูกซ่อน */
+  const [panelOpen, setPanelOpen] = useState(false)
+  // แตะรายการในแถบซ้ายที่ลอยอยู่แล้วให้แถบหุบเอง ไม่งั้นบังบอร์ดที่เพิ่งเลือก
+  const closeSidebarIfNarrow = () => {
+    if (window.innerWidth <= NARROW_SIDEBAR) setCollapsed(true)
+  }
   const [groupBy, setGroupBy] = useState<"status" | "category">("status")
   const [aiOpen, setAiOpen] = useState(false)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
@@ -77,12 +89,19 @@ export default function App() {
     try {
       const rows = await api.getProjects()
       setProjects(rows)
-      setSyncError(null)
+      // ล้างแค่ error ตอนโหลด — ห้ามล้าง syncError ไม่งั้น error ตอนบันทึกจะหายทันที
+      // เพราะ sync() เรียกฟังก์ชันนี้ต่อท้ายเสมอ ผู้ใช้เลยไม่เคยเห็นว่าบันทึกไม่สำเร็จ
+      setLoadError(null)
       return rows
     } catch (e) {
-      // ยังไม่ล็อกอินไม่ใช่ความผิดพลาด — หน้า LoginScreen บอกอยู่แล้ว
-      setProjects([])
-      setSyncError(api.isUnauthorized(e) ? null : e instanceof Error ? e.message : "Cannot reach the API")
+      if (api.isUnauthorized(e)) {
+        // ยังไม่ล็อกอินไม่ใช่ความผิดพลาด — หน้า LoginScreen บอกอยู่แล้ว
+        setProjects([])
+        setLoadError(null)
+      } else {
+        // โหลดไม่ได้ไม่เท่ากับไม่มีโปรเจค — เก็บข้อมูลเดิมไว้ แล้วบอกให้ลองใหม่
+        setLoadError(e instanceof Error ? e.message : "Cannot reach the API")
+      }
       return null
     }
   }, [])
@@ -397,7 +416,16 @@ export default function App() {
     <div className="app">
       {syncError && (
         <div className="sync-error" role="alert">
-          Could not save to the database: {syncError}
+          Could not save your change: {syncError}
+          <button type="button" className="sync-error-close" aria-label="Dismiss" onClick={() => setSyncError(null)}>
+            <IconClose size={14} />
+          </button>
+        </div>
+      )}
+      {loadError && projects.length > 0 && (
+        <div className="sync-error" role="alert">
+          Could not load the latest data: {loadError}
+          <button type="button" className="sync-error-retry" onClick={() => void refreshProjects()}>Retry</button>
         </div>
       )}
       {!collapsed && (
@@ -409,14 +437,14 @@ export default function App() {
           members={projectMembers}
           filters={filters}
           onChangeFilters={setFilters}
-          onSelectProject={(id) => { setActiveProjectId(id); setView("board") }}
+          onSelectProject={(id) => { setActiveProjectId(id); setView("board"); closeSidebarIfNarrow() }}
           onOpenAddProject={() => setProjectModalOpen(true)}
           onCollapse={() => setCollapsed(true)}
           cases={cases}
           activeCaseId={view === "documents" ? activeCaseId : null}
           documentsOpen={view === "documents"}
-          onOpenDocuments={() => { setView("documents"); setActiveCaseId(null) }}
-          onSelectCase={(id) => { setView("documents"); setActiveCaseId(id) }}
+          onOpenDocuments={() => { setView("documents"); setActiveCaseId(null); closeSidebarIfNarrow() }}
+          onSelectCase={(id) => { setView("documents"); setActiveCaseId(id); closeSidebarIfNarrow() }}
           onOpenAddDocument={() => { setView("documents"); setDocModalOpen(true) }}
         />
       )}
@@ -443,6 +471,8 @@ export default function App() {
           onDeleteProject={deleteProject}
           onToggleStar={toggleStar}
           onExpand={() => setCollapsed(false)}
+          showPanelButton={(view === "board" && project !== null) || (view === "documents" && activeCaseView != null)}
+          onTogglePanel={() => setPanelOpen((v) => !v)}
           onChangeTheme={setTheme}
           onLogout={async () => {
             await logout()
@@ -481,6 +511,8 @@ export default function App() {
             onOpenProject={(id) => { setActiveProjectId(id); setView("board") }}
             {...caseActions}
           />
+        ) : project === null && loadError ? (
+          <LoadFailed message={loadError} onRetry={() => void refreshProjects()} />
         ) : project === null ? (
           <EmptyProjects onOpen={() => setProjectModalOpen(true)} />
         ) : (
@@ -520,7 +552,10 @@ export default function App() {
       </main>
 
       {view === "documents" && activeCaseView && (
-        <div className="rs-wrap">
+        <div className={"rs-wrap" + (panelOpen ? " is-open" : "")}>
+        <button type="button" className="rs-close" aria-label="Close side panel" onClick={() => setPanelOpen(false)}>
+          <IconClose size={14} />
+        </button>
           <DocumentPanel
             key={activeCaseView.id}
             c={activeCaseView}
@@ -534,7 +569,10 @@ export default function App() {
       )}
 
       {view === "board" && (
-      <div className="rs-wrap">
+      <div className={"rs-wrap" + (panelOpen ? " is-open" : "")}>
+        <button type="button" className="rs-close" aria-label="Close side panel" onClick={() => setPanelOpen(false)}>
+          <IconClose size={14} />
+        </button>
         {/* key ตามคนที่ล็อกอิน — แผง GitHub ดึงข้อมูลตอน mount ถ้าไม่ remount หลังล็อกอิน
             จะค้างข้อความ "sign in first" ไปจนกว่าจะถึงรอบ poll ถัดไป (5 นาที) */}
         <RightSidebar
@@ -542,9 +580,10 @@ export default function App() {
           project={project}
           members={projectMembers}
           onOpenTaskRef={(ref) => setQuery(ref)}
-          onAddMember={() => { setMemberModalOpen(true); void refreshMembers() }}
-          onOpenProject={() => setDashTab("project")}
+          onAddMember={() => { setPanelOpen(false); setMemberModalOpen(true); void refreshMembers() }}
+          onOpenProject={() => { setPanelOpen(false); setDashTab("project") }}
           onOpenMember={(id) => {
+            setPanelOpen(false)
             setSelectedMemberId(id)
             setSelectedTaskId(null)
             setDashTab("member")
@@ -683,6 +722,19 @@ export default function App() {
           onImported={refreshMembers}
         />
       )}
+    </div>
+  )
+}
+
+/** โหลดโปรเจคไม่ได้ — ต้องไม่หน้าตาเหมือน "ยังไม่มีโปรเจค" ไม่งั้นผู้ใช้คิดว่างานหายหมด */
+function LoadFailed({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="empty-projects" role="alert">
+      <h2>Could not load your projects</h2>
+      <p>{message}</p>
+      <button type="button" className="btn btn-primary" onClick={onRetry}>
+        Try again
+      </button>
     </div>
   )
 }

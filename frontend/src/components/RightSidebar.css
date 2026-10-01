@@ -4,7 +4,8 @@
   flex: none;
   border-left: 1px solid var(--border);
   background: var(--bg-sidebar);
-  padding: 14px 14px 40px;
+  /* เผื่อที่ด้านล่างให้พ้นปุ่ม AI ที่ลอยอยู่มุมขวาล่าง (52px + ระยะขอบ 24px) */
+  padding: 14px 14px 96px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -274,8 +275,36 @@
   max-width: 150px;
 }
 
+/* จอแคบ (รวมโน้ตบุ๊ก 1280 ที่ซูม 125% = 1024) — แผงนี้เป็นทางเดียวเข้าแดชบอร์ด, Add member,
+   GitHub Activity ห้ามซ่อนทิ้ง เปลี่ยนเป็นลิ้นชักที่เปิดจากปุ่มบนแถบด้านบนแทน */
+.rs-close { display: none; }
 @media (max-width: 1180px) {
   .rs { display: none; }
+  .rs-wrap.is-open .rs {
+    display: flex;
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 70;
+    max-width: calc(100vw - 32px);
+    box-shadow: var(--shadow);
+  }
+  .rs-wrap.is-open .rs-close {
+    display: grid;
+    place-items: center;
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    z-index: 71;
+    width: 28px;
+    height: 28px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--bg-card);
+    color: var(--text-dim);
+    cursor: pointer;
+  }
 }
 
 /* ---------- ข้อเสนอจาก AI ว่า commit ตรงกับงานใบไหน ---------- */

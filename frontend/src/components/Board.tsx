@@ -4,7 +4,7 @@ import type { Complexity, Member, PriorityId, Project, StatusId, Task } from "..
 import { CATEGORIES, categoryColor, COMPLEXITIES, STATUSES, taskKey } from "../types"
 import type { Blocker } from "./TaskCard"
 import { TaskCard } from "./TaskCard"
-import { IconChevronDown, IconChevronRight, IconPlus } from "./Icons"
+import { IconChevronDown, IconChevronRight, IconDots, IconPlus } from "./Icons"
 import "./Board.css"
 
 /** งานที่ใบนี้รออยู่ พร้อมบอกว่าเสร็จหรือยัง
@@ -120,6 +120,9 @@ export function Board({
           },
         ].filter((c) => c.tasks.length > 0 || c.key === "__none")
 
+  // การ์ดหลักที่กางไปแล้วในรอบ render นี้ — กันไม่ให้กางซ้ำในทุกคอลัมน์ที่หัวข้อนั้นปรากฏ
+  const shownParents = new Set<string>()
+
   return (
     <div className="board-wrap">
       {narrowed && (
@@ -183,14 +186,32 @@ export function Board({
                 if (!parent) return null
                 const { done, total } = groupProgress(pid)
                 const collapsed = collapsedGroups.has(pid)
+                const isOpen = selectedTaskId === pid
+                // หัวข้อเดียวกันโผล่ได้หลายคอลัมน์ — กางการ์ดหลักแค่ที่แรก ไม่งั้นได้การ์ดซ้ำหลายใบ
+                const showParent = isOpen && !shownParents.has(pid)
+                if (showParent) shownParents.add(pid)
                 return (
                   <div className="col-group" key={pid}>
-                    <button type="button" className="cg-head" title={parent.title} onClick={() => toggleGroup(pid)}>
-                      {collapsed ? <IconChevronRight size={12} /> : <IconChevronDown size={12} />}
-                      <span className="cg-title">{parent.title}</span>
-                      <span className="cg-line" />
-                      <span className="cg-count">{done}/{total}</span>
-                    </button>
+                    <div className="cg-row">
+                      <button type="button" className="cg-head" title={parent.title} onClick={() => toggleGroup(pid)}>
+                        {collapsed ? <IconChevronRight size={12} /> : <IconChevronDown size={12} />}
+                        <span className="cg-title">{parent.title}</span>
+                        <span className="cg-line" />
+                        <span className="cg-count">{done}/{total}</span>
+                      </button>
+                      {/* การ์ดหลักไม่ได้ขึ้นเป็นการ์ดบนบอร์ด — ทางเดียวที่จะดูรายละเอียด คอมเมนต์ หรือลบได้ */}
+                      <button
+                        type="button"
+                        className={`cg-open${isOpen ? " is-on" : ""}`}
+                        aria-label={`Open details of ${parent.title}`}
+                        title="Open card details"
+                        aria-pressed={isOpen}
+                        onClick={() => onOpenTask(isOpen ? "" : pid)}
+                      >
+                        <IconDots size={14} />
+                      </button>
+                    </div>
+                    {showParent && renderCard(parent)}
                     {!collapsed && tasks.filter((t) => t.parentId === pid).map(renderCard)}
                   </div>
                 )

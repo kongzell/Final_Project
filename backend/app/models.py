@@ -163,7 +163,8 @@ class ProjectMember(Base):
 
     __table__ = project_members
 
-    member: Mapped[Member] = relationship(lazy="selectin")
+    # ชี้ตารางเดียวกับ Project.members โดยตั้งใจ (แถวนี้มีไว้อ่าน role) — บอกไว้ SQLAlchemy จะได้ไม่เตือน
+    member: Mapped[Member] = relationship(lazy="selectin", overlaps="members")
 
 
 class Task(Base):

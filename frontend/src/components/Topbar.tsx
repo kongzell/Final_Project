@@ -37,6 +37,9 @@ type Props = {
   onDeleteProject: () => void
   onToggleStar: () => void
   onExpand: () => void
+  /** จอแคบที่แผงขวาถูกซ่อน — ปุ่มเปิดแผงขวาแบบลิ้นชัก (ปุ่มซ่อนเองด้วย CSS เมื่อจอกว้าง) */
+  showPanelButton?: boolean
+  onTogglePanel?: () => void
   onChangeTheme: (id: ThemeId) => void
 }
 
@@ -47,6 +50,7 @@ export function Topbar({
   canDelete, groupBy, auth, onChangeGroupBy, onLogout, onChangeRole, onChangeEmail,
   onQueryChange,
   onSelectProject, onRenameProject, onDeleteProject, onToggleStar, onExpand,
+  showPanelButton = false, onTogglePanel,
   onChangeTheme,
 }: Props) {
   const [renaming, setRenaming] = useState(false)
@@ -69,7 +73,9 @@ export function Topbar({
               {documentName && (
                 <>
                   <span className="tb-sep">/</span>
-                  <span className="tb-crumb tb-crumb-current"><IconFolder size={14} /> {documentName}</span>
+                  <span className="tb-crumb tb-crumb-current" title={documentName}>
+                    <IconFolder size={14} /> <span className="tb-crumb-text">{documentName}</span>
+                  </span>
                 </>
               )}
             </>
@@ -98,8 +104,9 @@ export function Topbar({
               align="left"
               title="Project menu"
               trigger={() => (
-                <span className="tb-crumb tb-crumb-current">
-                  <IconTaskList size={14} className="tb-crumb-list" /> {project?.name}
+                <span className="tb-crumb tb-crumb-current" title={project?.name}>
+                  <IconTaskList size={14} className="tb-crumb-list" />
+                  <span className="tb-crumb-text">{project?.name}</span>
                   <IconChevronDown size={13} />
                 </span>
               )}
@@ -124,7 +131,15 @@ export function Topbar({
                     <IconPencil size={14} /> Rename project
                   </MenuItem>
                   {canDelete && (
-                    <MenuItem danger onClick={() => { onDeleteProject(); close() }}>
+                    <MenuItem
+                      danger
+                      onClick={() => {
+                        close()
+                        // ลบทั้งโปรเจคพร้อมงานทุกใบ กู้คืนไม่ได้ — ถามก่อนเสมอ
+                        const n = project?.tasks.length ?? 0
+                        if (window.confirm(`Delete project "${project?.name}" and all ${n} task(s)? This cannot be undone.`)) onDeleteProject()
+                      }}
+                    >
                       <IconTrash size={14} /> Delete project
                     </MenuItem>
                   )}
@@ -151,6 +166,17 @@ export function Topbar({
         </nav>
 
         <div className="tb-actions">
+          {showPanelButton && (
+            <button
+              type="button"
+              className="tb-icon-btn tb-panel-btn"
+              title="Side panel — stats, team, documents"
+              aria-label="Open side panel"
+              onClick={onTogglePanel}
+            >
+              <IconLayers size={16} />
+            </button>
+          )}
           {project !== null && !documents && (
             <>
           <Menu

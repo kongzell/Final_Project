@@ -34,8 +34,10 @@
 .board {
   flex: 1;
   display: grid;
-  /* จำนวนคอลัมน์เปลี่ยนตามจำนวนสถานะ — ให้ยืดเองตามความกว้าง */
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  /* คอลัมน์เรียงแถวเดียวเสมอ ไม่พอที่ก็เลื่อนซ้ายขวา — ถ้าปล่อยให้ขึ้นแถวใหม่
+     จอ 1280-1440 ที่มีแผงขวาจะดัน Done ไปอยู่ใต้ To Do จนต้องเลื่อนลงสุดถึงจะเจอ */
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(210px, 1fr);
   align-items: start;
   gap: 18px;
   padding: 22px 22px 48px;
@@ -209,6 +211,24 @@
   color: inherit;
 }
 .cg-head:hover .cg-title { color: var(--text-strong); }
+
+.cg-row { display: flex; align-items: center; gap: 4px; margin-top: 4px; min-width: 0; }
+.cg-row .cg-head { margin-top: 0; flex: 1; }
+.cg-open {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.cg-open:hover { background: var(--bg-hover); color: var(--text-strong); }
+.cg-open.is-on { border-color: var(--accent); color: var(--accent-text); }
 
 .cg-title {
   font-size: 12.5px;
@@ -472,11 +492,12 @@
 .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 
 /* จัดกลุ่มตามหมวดหมู่ — จำนวนคอลัมน์ไม่แน่นอน ให้ไหลตามความกว้าง */
-.board.by-category { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+.board.by-category { grid-auto-columns: minmax(240px, 1fr); }
 
-@media (max-width: 900px) {
+/* จอแคบมากเรียงคอลัมน์ลงมาเป็นแนวตั้งแทน — เลื่อนลงทีละคอลัมน์ง่ายกว่าเลื่อนข้าง */
+@media (max-width: 700px) {
   .board,
-  .board.by-category { grid-template-columns: 1fr; }
+  .board.by-category { grid-auto-flow: row; grid-auto-columns: auto; grid-template-columns: 1fr; }
 }
 
 /* ---------- ปุ่มตรวจงานบนการ์ดที่รอตรวจ ---------- */
