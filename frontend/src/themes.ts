@@ -30,6 +30,5 @@ export function saveTheme(id: ThemeId) {
   try {
     localStorage.setItem(KEY, id)
   } catch {
-    /* บันทึกไม่ได้ก็ไม่เป็นไร ธีมยังใช้ได้ในรอบนี้ */
   }
 }

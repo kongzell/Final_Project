@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react"
 import type { Member, Project, Task } from "../types"
 import {
-  categoryColor, STATUSES, taskKey, taskPoints, WORKLOAD_CAPACITY, workloadLevel,
+  boardTasks, categoryColor, STATUSES, taskKey, taskPoints, WORKLOAD_CAPACITY, workloadLevel,
 } from "../types"
 import { Avatar } from "./Avatar"
 import { IconChevronDown, IconChevronRight } from "./Icons"
@@ -111,13 +111,11 @@ type Props = {
 
 /** เนื้อของแท็บ "Project overview" — กรอบ modal อยู่ที่ Dashboard.tsx */
 export function ProjectPanel({ project, members, onOpenMember, onOpenTask }: Props) {
-  const tasks = project.tasks
+  // นับจากการ์ดบนบอร์ด — การ์ดหลักที่มีงานย่อยเป็นแค่หัวข้อ ไม่นับซ้ำ (ตรรกะเดียวกับบอร์ดและ Timeline)
+  // ไม่งั้นการ์ดหลักค้างสถานะ To Do ตลอด เปอร์เซ็นต์ไม่มีวันถึง 100 และชั่วโมงรวมเป็นสองเท่า
+  const tasks = useMemo(() => boardTasks(project.tasks), [project.tasks])
   const [timelineOpen, setTimelineOpen] = useState(true)
-  // งานที่วาดบน Timeline จริง — การ์ดหลักที่มีงานย่อยเป็นแค่หัวข้อ ไม่นับซ้ำ (ตรรกะเดียวกับใน Timeline.tsx)
-  const timelineRows = useMemo(() => {
-    const hasChildren = new Set(tasks.filter((t) => t.parentId).map((t) => t.parentId as string))
-    return tasks.filter((t) => !hasChildren.has(t.id)).length
-  }, [tasks])
+  const timelineRows = tasks.length
   const pace = useMemo(() => buildPace(tasks), [tasks])
   const closed = useMemo(() => buildClosed(tasks, members), [tasks, members])
 

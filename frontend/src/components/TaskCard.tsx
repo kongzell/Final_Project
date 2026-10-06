@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import type { Member, PriorityId, StatusId, Task } from "../types"
 import {
-  CATEGORIES, categoryColor, codeLink, COMPLEXITIES, formatDuration, isOverdue, PRIORITIES,
+  CATEGORIES, categoryColor, codeLink, COMPLEXITIES, formatDuration, formatEstimate, isOverdue, PRIORITIES,
   STATUSES, taskKey,
 } from "../types"
 import { Avatar } from "./Avatar"
@@ -98,6 +98,9 @@ export function TaskCard({
 
   //: สมาชิกส่งงานได้ถึงแค่ "รอตรวจ" — คนตรวจรับคือเจ้าของโปรเจค
   const movable = canManage ? STATUSES : STATUSES.filter((s) => s.id !== "complete")
+  //: สมาชิกย้ายได้เฉพาะงานที่ตัวเองรับไว้และยังไม่ปิด — ตรงกับที่ backend ตรวจ ไม่งั้นกดแล้วเจอ error
+  const canMove = (t: Task) =>
+    canManage || (currentMemberId !== null && t.assigneeIds.includes(currentMemberId) && t.status !== "complete")
 
   return (
     <article
@@ -146,6 +149,7 @@ export function TaskCard({
           </span>
           <h3 className="card-title">{task.title}</h3>
         </button>
+        {canMove(task) && (
         <div className="card-more">
           <Menu align="right" title="Options" trigger={() => <IconDots size={15} />}>
             {(close) => (
@@ -192,6 +196,7 @@ export function TaskCard({
             )}
           </Menu>
         </div>
+        )}
       </div>
 
       {subtasks.length > 0 && (
@@ -216,7 +221,7 @@ export function TaskCard({
           ))}
           {task.estimateHours !== null && (
             <span className="card-est" title="เวลาที่ AI ประเมินไว้ล่วงหน้า">
-              est {formatDuration(task.estimateHours)}
+              est {formatEstimate(task.estimateHours)}
             </span>
           )}
           {task.actualHours !== null && (
@@ -464,20 +469,20 @@ export function TaskCard({
                 {subtasks.map((s) => {
                   const owners = members.filter((m) => s.assigneeIds.includes(m.id))
                   const cx = COMPLEXITIES.find((c) => c.id === s.complexity)
+                  const sst = STATUSES.find((x) => x.id === s.status)
+                  const badge = (
+                    <span className="cd-status" style={{ color: sst?.color }}>
+                      <span className="dot" style={{ background: sst?.color }} />
+                      {sst?.label}
+                    </span>
+                  )
                   return (
                     <li key={s.id} className={s.status === "complete" ? "is-done" : ""}>
+                      {!canMove(s) ? badge : (
                       <Menu
                         align="left"
                         title="Subtask status"
-                        trigger={() => {
-                          const st = STATUSES.find((x) => x.id === s.status)
-                          return (
-                            <span className="cd-status" style={{ color: st?.color }}>
-                              <span className="dot" style={{ background: st?.color }} />
-                              {st?.label}
-                            </span>
-                          )
-                        }}
+                        trigger={() => badge}
                       >
                         {(close) => (
                           <>
@@ -499,6 +504,7 @@ export function TaskCard({
                           </>
                         )}
                       </Menu>
+                      )}
 
                       <div className="cd-sub-body">
                         <span className="cd-sub-title">{s.title}</span>
@@ -508,7 +514,7 @@ export function TaskCard({
                           )}
                           {cx && <span style={{ color: cx.color }}>{cx.label}</span>}
                           {s.estimateHours !== null && (
-                            <span className="cd-sub-hrs">{formatDuration(s.estimateHours)}</span>
+                            <span className="cd-sub-hrs">{formatEstimate(s.estimateHours)}</span>
                           )}
 
                           <Menu
@@ -562,8 +568,10 @@ export function TaskCard({
   )
 }
 
-/** ปีที่ต่ำกว่านี้ถือว่ายังพิมพ์ไม่ครบ — ช่องวันที่ของเบราว์เซอร์ให้ค่า 0002, 0020, 0202 ระหว่างพิมพ์ 2026 */
-const MIN_YEAR = 1900
+/** ปีที่ต่ำกว่านี้ถือว่ายังพิมพ์ไม่ครบ — ช่องวันที่ของเบราว์เซอร์ให้ค่า 0002, 0020, 0202 ระหว่างพิมพ์ 2026
+ *  ปีที่สูงกว่า MAX_YEAR คือพิมพ์เกิน (ช่องรับได้ถึง 6 หลัก) — ตรงกับช่วงที่ backend รับ */
+const MIN_YEAR = 2000
+const MAX_YEAR = 2100
 
 /** ช่องกำหนดส่งที่บันทึกเมื่อพิมพ์เสร็จ ไม่ใช่ทุกครั้งที่กดแป้น
  *
@@ -581,7 +589,7 @@ function DueDateInput({ value, onSave }: { value: string | null; onSave: (date: 
     if (d === "") {
       sent.current = d
       onSave(null)
-    } else if (/^\d{4}-\d{2}-\d{2}$/.test(d) && Number(d.slice(0, 4)) >= MIN_YEAR) {
+    } else if (/^\d{4}-\d{2}-\d{2}$/.test(d) && Number(d.slice(0, 4)) >= MIN_YEAR && Number(d.slice(0, 4)) <= MAX_YEAR) {
       sent.current = d
       onSave(d)
     }
@@ -597,6 +605,8 @@ function DueDateInput({ value, onSave }: { value: string | null; onSave: (date: 
     <input
       type="date"
       className="menu-date"
+      min={`${MIN_YEAR}-01-01`}
+      max={`${MAX_YEAR}-12-31`}
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => commit(draft)}

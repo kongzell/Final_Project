@@ -281,10 +281,26 @@ export const taskPoints = (t: Task): number =>
 export const openTasksOf = (tasks: Task[], memberId: string): Task[] =>
   tasks.filter((t) => t.assigneeIds.includes(memberId) && t.status !== "complete")
 
-/** แปลงชั่วโมงที่ใช้จริงเป็นจำนวนวันเต็ม — ปัดขึ้นเสมอ (เศษของวันนับเป็น 1 วัน) */
+/** เวลาที่ใช้จริง (นับตามปฏิทิน) — ไม่ถึงวันแสดงเป็นชั่วโมง เกินวันแสดงเป็นวันทศนิยมหนึ่งตำแหน่ง
+ *  เดิมปัดขึ้นเป็นวันเต็มเสมอ งานที่เสร็จใน 10 นาทีจึงขึ้นว่า "1 วัน" */
 export function formatDuration(hours: number): string {
-  const days = Math.max(1, Math.ceil(hours / 24))
-  return `${days} วัน`
+  if (hours < 1) return "< 1 ชม."
+  if (hours < 24) return `${Math.round(hours)} ชม.`
+  return `${Math.round((hours / 24) * 10) / 10} วัน`
+}
+
+/** ชั่วโมงทำงานที่ประเมินไว้ — แสดงเป็นชั่วโมงตรง ๆ เพราะเป็นแรงงาน ไม่ใช่วันบนปฏิทิน
+ *  (งาน 8 ชั่วโมงไม่ใช่ "1 วัน" แบบ 24 ชั่วโมง) */
+export function formatEstimate(hours: number): string {
+  return `${Math.round(Math.max(0, hours) * 10) / 10} ชม.`
+}
+
+/** งานที่ขึ้นเป็นการ์ดบนบอร์ดจริง — การ์ดหลักที่มีงานย่อยเป็นแค่หัวข้อกลุ่ม ไม่นับ
+ *  ทุกที่ที่โชว์จำนวนงานใช้ตัวนี้ ตัวเลขบนหัวบอร์ด แผงขวา และภาพรวมจะได้ตรงกัน
+ *  (การ์ดหลักเก็บชั่วโมงรวมของลูกไว้ด้วย ถ้านับมันซ้ำชั่วโมงรวมจะเป็นสองเท่า) */
+export function boardTasks(tasks: Task[]): Task[] {
+  const parents = new Set(tasks.filter((t) => t.parentId).map((t) => t.parentId as string))
+  return tasks.filter((t) => !parents.has(t.id))
 }
 
 /** วันที่วันนี้ตามเวลาเครื่องผู้ใช้ แบบ YYYY-MM-DD — เทียบกับ dueDate ได้ตรง ๆ

@@ -156,7 +156,7 @@ export function Board({
               canManage={canManage}
               currentMemberId={currentMemberId}
               expanded={t.id === selectedTaskId}
-              canClaim={currentMemberId !== null && t.assigneeIds.length === 0}
+              canClaim={currentMemberId !== null && t.assigneeIds.length === 0 && t.status !== "complete"}
               onClaim={() => onClaimTask(t.id)}
               onOpen={() => onOpenTask(t.id === selectedTaskId ? "" : t.id)}
               onSetSubtaskStatus={onSetSubtaskStatus}
@@ -263,12 +263,14 @@ function NewTask({ onSubmit }: { onSubmit: (draft: TaskDraft) => void }) {
       reset()
       return
     }
+    // min="0" ของช่องตัวเลขไม่กันการพิมพ์ -3 แล้วกด Enter — ค่าติดลบหรือพิมพ์มั่วถือว่าไม่ได้ใส่
+    const h = Number(hours)
     onSubmit({
       title: t,
       category,
       // คั่นด้วยจุลภาคหรือช่องว่างก็ได้ ไม่ต้องจำว่าต้องใช้อันไหน
       tags: tagText.split(/[,\s]+/).map((x) => x.trim()).filter(Boolean),
-      estimateHours: hours.trim() ? Number(hours) : null,
+      estimateHours: hours.trim() && Number.isFinite(h) && h > 0 ? Math.min(h, 10_000) : null,
       complexity,
     })
     reset()

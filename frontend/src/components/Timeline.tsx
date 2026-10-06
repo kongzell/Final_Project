@@ -13,6 +13,9 @@ const HEAD_H = 34
 const dayOf = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate())
 const addDays = (d: Date, n: number) => new Date(d.getTime() + n * DAY)
 const daysBetween = (a: Date, b: Date) => Math.round((b.getTime() - a.getTime()) / DAY)
+/** แกนเวลายาวไม่เกินนี้นับจากวันนี้ — วาดทีละวัน งานกำหนดส่งปี 9999 ทำให้ต้องวาดสามล้านวันจนหน้าเว็บค้าง
+ *  สองปีพอสำหรับโปรเจคทั่วไป แถบที่ยาวเกินถูกตัดที่ขอบขวา */
+const MAX_AHEAD_DAYS = 730
 const TH_MONTHS = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
 
 /** ความยาวแถบเป็นวัน — est ไม่มีถือว่า 1 วันแล้วบอกว่าเดา */
@@ -116,7 +119,7 @@ export function Timeline({ project, onOpenTask }: Props) {
       else next.add(pid)
       return next
     })
-  const { rows, first, days, months } = useMemo(() => {
+  const { rows, first, days, months, clipped } = useMemo(() => {
     const hasChildren = new Set(project.tasks.filter((t) => t.parentId).map((t) => t.parentId as string))
     const leaves = project.tasks.filter((t) => !hasChildren.has(t.id))
     const scheduled = schedule(leaves, today)
@@ -147,13 +150,18 @@ export function Timeline({ project, onOpenTask }: Props) {
       rowsOut.push({ kind: "task", bar: b })
     }
 
-    if (scheduled.length === 0) return { rows: [] as Row[], first: today, days: 0, months: [] as { x: number; label: string }[] }
+    if (scheduled.length === 0) return { rows: [] as Row[], first: today, days: 0, months: [] as { x: number; label: string }[], clipped: 0 }
     let lo = scheduled.reduce((m, b) => (b.start < m ? b.start : m), today)
     let hi = scheduled.reduce((m, b) => (b.end > m ? b.end : m), today)
     for (const b of scheduled) if (b.task.dueDate) { const d = dayOf(new Date(b.task.dueDate + "T00:00:00")); if (d > hi) hi = d }
     // ย้อนหลังไม่เกิน 2 สัปดาห์ — งานที่เสร็จนานแล้วไม่ต้องลากแกนให้ยาว แถบที่เริ่มก่อนหน้านั้นถูกตัดที่ขอบซ้าย
     const floor = addDays(today, -14)
     if (lo < floor) lo = floor
+    const ceiling = addDays(today, MAX_AHEAD_DAYS)
+    const clipped = scheduled.filter((b) =>
+      b.end > ceiling || (b.task.dueDate !== null && dayOf(new Date(b.task.dueDate + "T00:00:00")) > ceiling),
+    ).length
+    if (hi > ceiling) hi = ceiling
     lo = addDays(lo, -1)
     hi = addDays(hi, 2)
     const n = daysBetween(lo, hi)
@@ -162,7 +170,7 @@ export function Timeline({ project, onOpenTask }: Props) {
       const d = addDays(lo, i)
       if (i === 0 || d.getDate() === 1) ms.push({ x: i * DAY_W, label: `${TH_MONTHS[d.getMonth()]} ${(d.getFullYear() + 543) % 100}` })
     }
-    return { rows: rowsOut, first: lo, days: n, months: ms }
+    return { rows: rowsOut, first: lo, days: n, months: ms, clipped }
   }, [project.tasks, today])
 
   // หัวข้อที่พับไว้ — ซ่อนเฉพาะแถวงานใต้มัน หัวข้อเองยังแสดงอยู่เพื่อกดกางกลับได้
@@ -206,6 +214,11 @@ export function Timeline({ project, onOpenTask }: Props) {
 
   return (
     <div className="tl">
+      {clipped > 0 && (
+        <p className="pd-note">
+          {clipped} task(s) run past {MAX_AHEAD_DAYS / 365} years from today — the chart stops there
+        </p>
+      )}
       <div className="tl-body tl-body-scroll">
         <div className="tl-labels" style={{ paddingTop: HEAD_H }}>
           {visibleRows.map((r) =>

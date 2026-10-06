@@ -98,6 +98,9 @@ async def _advance_referenced_tasks(
 
             if task.status != status:
                 apply_status_change(task, status)
+                # ตีกลับงานที่คนทำถูกเอาออกไปแล้ว — จอดไว้รอเริ่มแทนการค้างกำลังทำโดยไม่มีใครทำ
+                if task.status == "in-progress" and not task.assignees:
+                    apply_status_change(task, "todo")
                 moved.append((project, task))
 
     await session.commit()

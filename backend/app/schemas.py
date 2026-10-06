@@ -19,6 +19,17 @@ class ApiModel(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, from_attributes=True)
 
 
+#: ช่วงปีที่รับเป็นกำหนดส่ง — ปีที่พิมพ์พลาด (0002, 20266) ไม่มีงานไหนตั้งใจใช้
+#: และ Timeline ต้องวาดทุกวันจนถึงวันนั้น ปี 9999 ทำให้หน้าเว็บค้างทั้งหน้า
+DUE_YEAR_MIN, DUE_YEAR_MAX = 2000, 2100
+
+
+def _check_due(value: date | None) -> date | None:
+    if value is not None and not DUE_YEAR_MIN <= value.year <= DUE_YEAR_MAX:
+        raise ValueError(f"due date must be between {DUE_YEAR_MIN} and {DUE_YEAR_MAX}")
+    return value
+
+
 # ---------- members ----------
 
 class MemberUpdate(ApiModel):
@@ -74,9 +85,11 @@ class TaskCreate(ApiModel):
     status: StatusId = "todo"
     priority: PriorityId = "none"
     due_date: date | None = None
+    _due_in_range = field_validator("due_date")(_check_due)
     category: str | None = None
     tags: list[str] = Field(default_factory=list)
-    estimate_hours: float | None = None
+    #: ชั่วโมงทำงานที่ประเมินไว้ — ติดลบไม่มีความหมาย เพดานกันพิมพ์เลขเกินมาเป็นหลักล้าน
+    estimate_hours: float | None = Field(default=None, ge=0, le=10_000)
     complexity: Complexity | None = None
     #: id ของงานที่ต้องเสร็จก่อน — ตัวที่ไม่ได้อยู่ในโปรเจคเดียวกันจะถูกตัดทิ้ง
     depends_on: list[str] = Field(default_factory=list)
@@ -92,10 +105,12 @@ class TaskUpdate(ApiModel):
     status: StatusId | None = None
     priority: PriorityId | None = None
     due_date: date | None = None
+    _due_in_range = field_validator("due_date")(_check_due)
     position: float | None = None
     category: str | None = None
     tags: list[str] | None = None
-    estimate_hours: float | None = None
+    #: ชั่วโมงทำงานที่ประเมินไว้ — ติดลบไม่มีความหมาย เพดานกันพิมพ์เลขเกินมาเป็นหลักล้าน
+    estimate_hours: float | None = Field(default=None, ge=0, le=10_000)
     complexity: Complexity | None = None
 
 

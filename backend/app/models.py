@@ -243,7 +243,7 @@ class Task(Base):
     assignees: Mapped[list[Member]] = relationship(secondary=task_assignees, lazy="selectin")
 
 
-def apply_status_change(task: Task, new_status: str) -> None:
+def apply_status_change(task: Task, new_status: str, *, by_reviewer: bool = True) -> None:
     """เปลี่ยนสถานะงานพร้อมบันทึกประวัติที่ใช้ประเมินผลงานทีหลัง
 
     ต้องเรียกผ่านตัวนี้เสมอแทนการ set task.status ตรง ๆ เพราะมีสองทางที่ย้าย
@@ -260,7 +260,8 @@ def apply_status_change(task: Task, new_status: str) -> None:
     # ตีกลับจากรอตรวจ (คนกด Rework หรือ GitHub ขอแก้) = การ์ดแดง นับรอบแก้
     # ส่งตรวจใหม่หรือปิดงาน = เลิกทำเครื่องหมาย
     # ถ้าถูกดึงกลับไปรอเริ่มยังคงธงไว้ เพราะงานก็ยังไม่ผ่านการตรวจอยู่ดี
-    if task.status == "review" and new_status == "in-progress":
+    # คนทำดึงงานตัวเองกลับมาแก้ก่อนมีใครตรวจ (by_reviewer=False) ไม่นับเป็นการตีกลับ
+    if task.status == "review" and new_status == "in-progress" and by_reviewer:
         task.needs_rework = True
         task.rework_count += 1
     elif new_status in ("review", "complete"):

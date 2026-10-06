@@ -70,19 +70,40 @@ async def update_task(
 ) -> TaskOut:
     task, project = await _task_with_project(session, task_id, me)
     data = payload.model_dump(exclude_unset=True)
+    manager = project.can_manage(me.id)
+    moving = "status" in data and data["status"] != task.status
 
     # สมาชิกย้ายคอลัมน์งานที่ตัวเองทำได้ แต่เปลี่ยนชื่อ ความสำคัญ หมวดหมู่ ไม่ได้
-    if not project.can_manage(me.id):
+    if not manager:
         blocked = sorted(set(data) - MEMBER_EDITABLE)
         if blocked:
             raise HTTPException(
                 403, f"Only the project owner can change: {', '.join(blocked)}"
             )
+        if moving:
+            # งานของคนอื่นไม่ใช่เรื่องของเรา — ไม่งั้นสมาชิกตีกลับงานเพื่อนได้ และ rework ไปนับที่เพื่อน
+            if me.id not in {m.id for m in task.assignees}:
+                raise HTTPException(
+                    403, "You can only move tasks you have taken — press Take it first"
+                )
+            # งานที่ปิดแล้วผ่านการตรวจรับมาแล้ว เปิดใหม่ได้เฉพาะคนตรวจ
+            if task.status == "complete":
+                raise HTTPException(
+                    403, "This task is closed — only the owner or an admin can reopen it"
+                )
         # ปิดงานคือการตรวจรับ ซึ่งเป็นหน้าที่เจ้าของ สมาชิกส่งได้แค่ถึงรอตรวจ
         if data.get("status") == "complete":
             raise HTTPException(
                 403,
                 "You can send work to review, but closing a task is up to the owner or an admin",
+            )
+
+    # กำลังทำ / รอตรวจ ต้องมีคนถืองาน ไม่งั้นบอร์ดบอกว่ามีคนทำทั้งที่ไม่มี
+    # ยกเว้นตีกลับงานที่คนทำถูกเอาออกจากโปรเจคไปแล้ว — ปล่อยผ่าน แล้วไปจอดรอเริ่มข้างล่าง
+    if moving and not task.assignees and data["status"] in ("in-progress", "review"):
+        if not (task.status == "review" and data["status"] == "in-progress"):
+            raise HTTPException(
+                400, "Nobody has this task yet — take it or assign someone first"
             )
 
     # ย้ายคอลัมน์แล้วไม่ได้สั่งลำดับมาด้วย -> ต่อท้ายคอลัมน์ปลายทาง
@@ -102,12 +123,16 @@ async def update_task(
 
     # ต้องเรียกก่อนลูป setattr ข้างล่าง เพราะตัวช่วยเทียบสถานะเก่ากับใหม่
     if "status" in data:
-        apply_status_change(task, data["status"])
+        apply_status_change(task, data["status"], by_reviewer=manager)
         if old_status == "complete" and data["status"] != "complete":
             task.overdue_notified_at = None
 
     for field, value in data.items():
         setattr(task, field, value)
+
+    # ตีกลับงานที่ไม่มีใครถือแล้ว -> กลับไปรอเริ่ม (ธง rework ยังอยู่) รอคนใหม่มารับ
+    if moving:
+        await _park_if_unclaimed(session, task)
 
     await session.commit()
     await session.refresh(task)
@@ -142,6 +167,9 @@ async def assign(
         raise HTTPException(
             403, "Only the project owner or an admin can assign work to someone else"
         )
+    # งานที่ปิดแล้วไม่มีอะไรให้ทำต่อ — รับไปก็ได้แค่ชื่อขึ้นการ์ดและภาระงานในแดชบอร์ดเพี้ยน
+    if not project.can_manage(me.id) and task.status == "complete":
+        raise HTTPException(400, "This task is already done")
 
     member = await session.get(Member, member_id)
     if member is None:

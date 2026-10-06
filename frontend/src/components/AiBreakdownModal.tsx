@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import type { BreakdownResult, SubtaskSuggestion } from "../api"
 import { breakdownFile, breakdownTask } from "../api"
-import { CATEGORIES, categoryColor, COMPLEXITIES, formatDuration } from "../types"
+import { CATEGORIES, categoryColor, COMPLEXITIES, formatEstimate } from "../types"
 import {
   IconCalendar, IconCheck, IconChevronDown, IconClose, IconFile, IconPencil, IconPlus,
   IconSparkle,
@@ -251,7 +251,7 @@ export function AiBreakdownModal({ projectName, source, onClose, onAdd }: Props)
                         {s.tags.map((t) => (
                           <span key={t} className="ai-tag">{t}</span>
                         ))}
-                        <span className="ai-est">{formatDuration(s.estimateHours)}</span>
+                        <span className="ai-est">{formatEstimate(s.estimateHours)}</span>
                         {s.dueDate && (
                           <span className="ai-due" title="Due date taken from the schedule in the request">
                             <IconCalendar size={11} /> {fmtDue(s.dueDate)}
@@ -372,12 +372,14 @@ function SubtaskForm({
           step={0.5}
           value={value.estimateHours}
           placeholder="hrs"
-          onChange={(e) => onChange({ estimateHours: Number(e.target.value) || 0 })}
+          onChange={(e) => onChange({ estimateHours: Math.min(10_000, Math.max(0, Number(e.target.value) || 0)) })}
         />
 
         <input
           className="ai-in ai-in-date"
           type="date"
+          min="2000-01-01"
+          max="2100-12-31"
           value={value.dueDate}
           title="Due date"
           onChange={(e) => onChange({ dueDate: e.target.value })}

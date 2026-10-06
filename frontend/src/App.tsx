@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { Case, CaseDirectoryEntry, Member, PriorityId, Project, ProjectDocuments, StatusId } from "./types"
+import { boardTasks } from "./types"
 import type { ThemeId } from "./themes"
 import { loadTheme, saveTheme } from "./themes"
 import type { AuthStatus, NewCase, SubtaskSuggestion } from "./api"
@@ -455,7 +456,7 @@ export default function App() {
           documentName={view === "documents" ? activeCaseView?.title ?? null : null}
           project={project}
           projects={projects}
-          taskCount={project ? project.tasks.length : 0}
+          taskCount={project ? boardTasks(project.tasks).length : 0}
           query={query}
           searchRef={searchRef}
           starred={project ? starredIds.includes(project.id) : false}

@@ -3,7 +3,7 @@ import type { Commit, SystemHealth, WebhookEvent } from "../api"
 import { applySuggestion, getCommits, getSystemHealth, getWebhookEvents } from "../api"
 import { caseFileUrl } from "../api"
 import type { CaseFile, Member, Project, ProjectDocuments, Task } from "../types"
-import { CASE_STATUSES, openTasksOf, taskPoints, WORKLOAD_CAPACITY, workloadLevel } from "../types"
+import { boardTasks, CASE_STATUSES, openTasksOf, taskPoints, WORKLOAD_CAPACITY, workloadLevel } from "../types"
 import { Avatar } from "./Avatar"
 import { IconFile, IconPlus } from "./Icons"
 import "./RightSidebar.css"
@@ -70,15 +70,18 @@ export function RightSidebar({
 /* ---------- Project Context & Stats ---------- */
 
 function ProjectStats({ project, onOpen }: { project: Project; onOpen: () => void }) {
-  const cards = project.tasks.filter((t) => !t.parentId)
-  const done = project.tasks.filter((t) => t.status === "complete").length
-  const doing = project.tasks.filter((t) => t.status === "in-progress").length
-  const rework = project.tasks.filter((t) => t.needsRework && t.status !== "complete").length
-  const review = project.tasks.filter((t) => t.status === "review").length
-  const todo = project.tasks.filter((t) => t.status === "todo").length
-  const total = project.tasks.length
+  // นับเฉพาะการ์ดที่อยู่บนบอร์ด — การ์ดหลักที่มีงานย่อยเป็นหัวข้อกลุ่ม ไม่งั้นตัวเลขไม่ตรงกับคอลัมน์
+  // และชั่วโมงรวมเป็นสองเท่า (การ์ดหลักเก็บผลรวมของลูกไว้แล้ว)
+  const tasks = boardTasks(project.tasks)
+  const groups = project.tasks.length - tasks.length
+  const done = tasks.filter((t) => t.status === "complete").length
+  const doing = tasks.filter((t) => t.status === "in-progress").length
+  const rework = tasks.filter((t) => t.needsRework && t.status !== "complete").length
+  const review = tasks.filter((t) => t.status === "review").length
+  const todo = tasks.filter((t) => t.status === "todo").length
+  const total = tasks.length
   const percent = total === 0 ? 0 : Math.round((done / total) * 100)
-  const hours = project.tasks.reduce((sum, t) => sum + (t.estimateHours ?? 0), 0)
+  const hours = tasks.reduce((sum, t) => sum + (t.estimateHours ?? 0), 0)
 
   return (
     <section className="rs-panel rs-panel-btn" onClick={onOpen} role="button" tabIndex={0}
@@ -95,8 +98,8 @@ function ProjectStats({ project, onOpen }: { project: Project; onOpen: () => voi
       </div>
 
       <dl className="rs-stats">
-        <div><dt>All tasks</dt><dd>{total}</dd></div>
-        <div><dt>Main cards</dt><dd>{cards.length}</dd></div>
+        <div><dt>Tasks</dt><dd>{total}</dd></div>
+        <div><dt>Groups</dt><dd>{groups}</dd></div>
         <div><dt>To Do</dt><dd className="c-todo">{todo}</dd></div>
         <div><dt>In Progress</dt><dd className="c-prog">{doing}</dd></div>
         <div><dt>Rework</dt><dd className="c-rework">{rework}</dd></div>

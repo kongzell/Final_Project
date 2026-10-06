@@ -16,6 +16,7 @@ from app.models import (
     Member,
     Project,
     Task,
+    apply_status_change,
     project_members,
     project_removals,
     task_assignees,
@@ -235,8 +236,9 @@ async def remove_member(
             ~Task.id.in_(select(task_assignees.c.task_id)),
         )
     )
+    # งานรอตรวจปล่อยไว้ เพราะงานถูกทำไปแล้วจริง เจ้าของยังตรวจรับได้ ถ้าตีกลับจะจอดรอเริ่มเอง
     for task in orphaned:
-        task.status = "todo"
+        apply_status_change(task, "todo")
 
     await session.commit()
 
