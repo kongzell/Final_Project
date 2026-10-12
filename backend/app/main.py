@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -42,11 +42,13 @@ async def lifespan(_app: FastAPI):
 
 
 # docs วางไว้ใต้ /api เพื่อให้ผ่าน proxy ของ vite (dev) และ nginx (prod) ได้เหมือน endpoint อื่น
+# เปิดเฉพาะตอนพัฒนาบนเครื่อง — บนเว็บจริงไม่ต้องแจกแผนที่ endpoint ทั้งหมดให้คนนอก
+API_DOCS = not settings.render
 app = FastAPI(
     title="3work api",
-    docs_url="/api/docs",
+    docs_url="/api/docs" if API_DOCS else None,
     redoc_url=None,
-    openapi_url="/api/openapi.json",
+    openapi_url="/api/openapi.json" if API_DOCS else None,
     lifespan=lifespan,
 )
 
@@ -77,6 +79,18 @@ class Health(BaseModel):
 @app.get("/api/health")
 def health() -> Health:
     return Health(ok=True, service="3work api", time=datetime.now(UTC))
+
+
+# เส้นทาง /api ที่ไม่มีอยู่จริงต้องได้ 404 — ไม่งั้นบนเว็บจริงจะตกไปที่หน้าเว็บ (SPA)
+# แล้วได้ HTML กลับไปพร้อม 200 เช่น /api/docs ที่ปิดไว้ก็จะดูเหมือนยังเปิดอยู่
+# ต้องประกาศหลัง router ทุกตัว จะได้จับเฉพาะเส้นทางที่ไม่มีใครรับ
+@app.api_route(
+    "/api/{path:path}",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+    include_in_schema=False,
+)
+def api_not_found(path: str) -> None:  # noqa: ARG001
+    raise HTTPException(404, "Not Found")
 
 
 # ---------- หน้าเว็บ ----------

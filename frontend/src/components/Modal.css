@@ -123,23 +123,6 @@
 .field-input::placeholder,
 .field textarea::placeholder { color: var(--text-faint); }
 
-.color-row { display: flex; gap: 6px; flex-wrap: wrap; }
-
-.color-dot {
-  width: 24px;
-  height: 24px;
-  border: 2px solid transparent;
-  border-radius: 50%;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  padding: 0;
-}
-
-.color-dot.is-active { border-color: var(--text-strong); }
-
 .gh-list { max-height: 190px; overflow-y: auto; }
 
 .modal-hint {
