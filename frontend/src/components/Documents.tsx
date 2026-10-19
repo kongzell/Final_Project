@@ -159,6 +159,8 @@ function Workspace({
   const [query, setQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all")
   const [layout, setLayout] = useState<"board" | "list">("board")
+  /** เอกสารที่กางรายละเอียดอยู่ — ทีละใบ เหมือนการ์ดงานบนบอร์ด */
+  const [openFileId, setOpenFileId] = useState<string | null>(null)
   /** คำขอที่กำลังตอบด้วยการอัปโหลดไฟล์ใหม่ */
   const [uploadFor, setUploadFor] = useState<DocumentRequest | null>(null)
   /** เพิ่ม/ขอเอกสารจากการ์ดโปรเจค — ผูกโปรเจคนั้นให้เลย */
@@ -207,6 +209,9 @@ function Workspace({
     project: projectOf(f),
     older: history(f),
     uploader: uploader(f.uploadedBy),
+    uploaderOf: uploader,
+    expanded: openFileId === f.id,
+    onToggle: () => setOpenFileId((id) => (id === f.id ? null : f.id)),
     caseId: c.id,
     canEdit: canEdit(f),
     canDelete: isOwner,
@@ -469,9 +474,13 @@ function Workspace({
 type DocActions = {
   f: CaseFile
   project: Project | null
+  /** ฉบับก่อนหน้าทั้งสาย เรียงจากใหม่ไปเก่า */
   older: CaseFile[]
   uploader: string
+  uploaderOf: (memberId: string | null) => string
   caseId: string
+  expanded: boolean
+  onToggle: () => void
   canEdit: boolean
   canDelete: boolean
   canBreakdown: boolean
@@ -483,7 +492,7 @@ type DocActions = {
 }
 
 function DocCard({
-  f, project, older, uploader, caseId, canEdit, canDelete, canBreakdown,
+  f, project, older, uploader, uploaderOf, caseId, expanded, onToggle, canEdit, canDelete, canBreakdown,
   onStatus, onEdit, onVersion, onDelete, onBreakdown,
 }: DocActions) {
   const status = CASE_STATUSES.find((s) => s.id === f.status)
@@ -498,7 +507,7 @@ function DocCard({
     : "Let AI read this file and propose task cards"
 
   return (
-    <article className={"file-card" + (late ? " is-late" : "")}>
+    <article className={"file-card" + (late ? " is-late" : "") + (expanded ? " is-open" : "")}>
       <div className="file-card-top">
         <span className="case-file-cat">{categoryLabel(f.category)}</span>
         {f.version > 1 && <span className="file-ver">v{f.version}</span>}
@@ -516,7 +525,9 @@ function DocCard({
         )}
       </div>
 
-      <h3 className="case-title">{f.title}</h3>
+      <button type="button" className="doc-open" aria-expanded={expanded} onClick={onToggle} title="Show version history">
+        <h3 className="case-title">{f.title}</h3>
+      </button>
       {(f.docNumber || f.agency) && (
         <p className="case-meta">
           {f.docNumber && <span>{f.docNumber}</span>}
@@ -534,9 +545,12 @@ function DocCard({
           <span className={"case-deadline" + (late ? " is-late" : "")}> · {late ? "Overdue" : "Due"} {fmtDate(f.deadline)}</span>
         )}
       </p>
-      {older.length > 0 && (
-        <p className="file-card-history">replaces {older.map((h) => `${h.filename} (v${h.version})`).join(" ← ")}</p>
+      {older.length > 0 && !expanded && (
+        <button type="button" className="file-card-history" onClick={onToggle}>
+          replaces {older.map((h) => `${h.filename} (v${h.version})`).join(" ← ")}
+        </button>
       )}
+      {expanded && <VersionHistory caseId={caseId} versions={[f, ...older]} uploaderOf={uploaderOf} />}
 
       <div className="case-foot">
         {project ? (
@@ -655,7 +669,7 @@ function ProjectCard({
 
 /** แถวเอกสาร 1 ใบในการ์ดโปรเจค — ข้อมูลย่อ + เมนู ⋯ แทนปุ่มเรียงแถวของการ์ดเต็ม */
 function DocRow({
-  f, caseId, canEdit, canDelete, canBreakdown,
+  f, older, uploaderOf, caseId, expanded, onToggle, canEdit, canDelete, canBreakdown,
   onStatus, onEdit, onVersion, onDelete, onBreakdown,
 }: DocActions) {
   const status = CASE_STATUSES.find((s) => s.id === f.status)
@@ -663,12 +677,12 @@ function DocRow({
   const readable = aiReadable(f)
 
   return (
-    <li className={"proj-doc-row" + (late ? " is-late" : "")}>
+    <li className={"proj-doc-row" + (late ? " is-late" : "") + (expanded ? " is-open" : "")}>
       <div className="proj-doc-main">
         <span className="case-file-cat">{categoryLabel(f.category)}</span>
-        <a className="proj-doc-title" href={caseFileUrl(caseId, f.id)} target="_blank" rel="noreferrer" title={f.filename}>
+        <button type="button" className="proj-doc-title" aria-expanded={expanded} onClick={onToggle} title={f.filename}>
           {f.title}{f.version > 1 ? <span className="file-ver"> v{f.version}</span> : null}
-        </a>
+        </button>
       </div>
       {(f.docNumber || f.agency || f.deadline) && (
         <div className="proj-doc-meta">
@@ -714,7 +728,48 @@ function DocRow({
           )}
         </Menu>
       </div>
+      {expanded && <VersionHistory caseId={caseId} versions={[f, ...older]} uploaderOf={uploaderOf} />}
     </li>
+  )
+}
+
+/** รายละเอียดที่กางใต้เอกสาร — ทุกฉบับในสาย เรียงจากใหม่ไปเก่า โหลดฉบับไหนก็ได้
+ *  ฉบับเก่าไม่ถูกลบตอนส่งฉบับใหม่ จึงเปิดย้อนดูได้เสมอ */
+function VersionHistory({
+  caseId, versions, uploaderOf,
+}: { caseId: string; versions: CaseFile[]; uploaderOf: (memberId: string | null) => string }) {
+  return (
+    <div className="doc-detail">
+      <span className="doc-detail-label">Version history ({versions.length})</span>
+      <ul className="doc-versions">
+        {versions.map((v, i) => (
+          <li key={v.id} className={"doc-version" + (i === 0 ? " is-current" : "")}>
+            <span className="file-ver">v{v.version}</span>
+            <div className="doc-version-body">
+              <span className="doc-version-name">
+                {v.filename}
+                {i === 0 && <span className="doc-version-tag">Current</span>}
+              </span>
+              <span className="doc-version-meta">
+                {formatBytes(v.size)} · {uploaderOf(v.uploadedBy)} · {fmtDate(v.uploadedAt)}
+              </span>
+            </div>
+            <a
+              className="member-action"
+              href={caseFileUrl(caseId, v.id)}
+              download={v.filename}
+              title={`Download v${v.version}`}
+              aria-label={`Download version ${v.version}`}
+            >
+              <IconDownload size={13} />
+            </a>
+          </li>
+        ))}
+      </ul>
+      {versions.length === 1 && (
+        <p className="doc-detail-hint">Only one version so far — use New version and this one stays here.</p>
+      )}
+    </div>
   )
 }
 
