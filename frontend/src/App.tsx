@@ -1,6 +1,9 @@
+import type { ReactNode } from "react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import type { Case, CaseDirectoryEntry, Member, PriorityId, Project, ProjectDocuments, StatusId } from "./types"
-import { boardTasks } from "./types"
+import type {
+  Case, CaseDirectoryEntry, Member, PriorityId, Project, ProjectDocuments, StatusId, Task,
+} from "./types"
+import { boardTasks, canManageAs } from "./types"
 import type { ThemeId } from "./themes"
 import { loadTheme, saveTheme } from "./themes"
 import type { AuthStatus, NewCase, SubtaskSuggestion } from "./api"
@@ -180,7 +183,7 @@ export default function App() {
   /** เจ้าของโปรเจคที่เปิดอยู่ — ลบโปรเจคกับตั้ง admin ได้คนเดียว */
   const isOwner = project !== null && me !== null && project.ownerId === me
   /** เจ้าของหรือ admin — เพิ่มงาน มอบหมาย จัดการสมาชิก แตกงานด้วย AI */
-  const canManage = isOwner || (project !== null && me !== null && project.adminIds.includes(me))
+  const canManage = canManageAs(project, me)
 
   const projectMembers = useMemo(
     () => (project ? allMembers.filter((m) => project.memberIds.includes(m.id)) : []),
@@ -250,19 +253,21 @@ export default function App() {
   const deleteTask = (taskId: string) => void sync(() => api.deleteTask(taskId))
 
   /**
-   * มอบหมายงาน — ถ้าเป็นการเพิ่มคนให้งานที่ยัง "รอเริ่ม" จะย้ายไป "กำลังทำ" ให้เลย
+   * ใส่คนให้งาน — งานที่ยัง "รอเริ่ม" ย้ายไป "กำลังทำ" ให้เลย
    * งานที่อยู่รอตรวจ/เสร็จแล้วไม่ถูกย้าย เพราะการเพิ่มคนตรงนั้นคือการหาคนมาตรวจ ไม่ใช่เริ่มทำใหม่
    */
+  const assignAndStart = async (task: Task, memberId: string) => {
+    await api.setAssignee(task.id, memberId, true)
+    if (task.status === "todo") {
+      await api.updateTask(task.id, { status: "in-progress" })
+    }
+  }
+
   const toggleAssignee = (taskId: string, memberId: string) => {
     const task = project?.tasks.find((t) => t.id === taskId)
     if (!task) return
     const adding = !task.assigneeIds.includes(memberId)
-    void sync(async () => {
-      await api.setAssignee(taskId, memberId, adding)
-      if (adding && task.status === "todo") {
-        await api.updateTask(taskId, { status: "in-progress" })
-      }
-    })
+    void sync(() => (adding ? assignAndStart(task, memberId) : api.setAssignee(taskId, memberId, false)))
   }
 
   /** รับงานเอง — ถ้ายังไม่ได้อยู่ในโปรเจคจะถูกเพิ่มเข้าให้ด้วย */
@@ -270,14 +275,11 @@ export default function App() {
     const me = auth?.member
     const task = project?.tasks.find((t) => t.id === taskId)
     if (!me || !project || !task) return
-
-    void sync(async () => {
-      await api.setAssignee(taskId, me.id, true)
-      if (task.status === "todo") {
-        await api.updateTask(taskId, { status: "in-progress" })
-      }
-    })
+    void sync(() => assignAndStart(task, me.id))
   }
+
+  const patchTask = (taskId: string, patch: Parameters<typeof api.updateTask>[1]) =>
+    void sync(() => api.updateTask(taskId, patch))
 
   const addExistingMember = (memberId: string) => {
     if (!project) return
@@ -325,41 +327,30 @@ export default function App() {
     setActiveCaseId(created.id)
   }
 
-  const caseActions = {
-    onUpdate: async (id: string, patch: api.CasePatch) => {
-      await api.updateCase(id, patch)
+  /** เรียก API ของหน้า Documents แล้วโหลดที่เก็บใหม่ */
+  const thenRefresh = <A extends unknown[]>(call: (...args: A) => Promise<unknown>) =>
+    async (...args: A) => {
+      await call(...args)
       await refreshCases()
-    },
+    }
+
+  const caseActions = {
+    onUpdate: thenRefresh(api.updateCase),
     onDelete: async (id: string) => {
       await api.deleteCase(id)
       setActiveCaseId(null)
       await refreshCases()
     },
-    onAddFile: async (id: string, input: api.NewCaseFile) => {
-      await api.addCaseFile(id, input)
-      await refreshCases()
-    },
-    onUpdateFile: async (id: string, fileId: string, patch: api.CaseFilePatch) => {
-      await api.updateCaseFile(id, fileId, patch)
-      await refreshCases()
-    },
-    onDeleteFile: async (id: string, fileId: string) => {
-      await api.deleteCaseFile(id, fileId)
-      await refreshCases()
-    },
+    onAddFile: thenRefresh(api.addCaseFile),
+    onUpdateFile: thenRefresh(api.updateCaseFile),
+    onDeleteFile: thenRefresh(api.deleteCaseFile),
     onManageMembers: (id: string) => { setCaseMemberModalId(id); void refreshMembers() },
     onBreakdown: (c: Case, file: Case["files"][number]) => {
       if (!file.projectId) return
       setAiFile({ caseId: c.id, fileId: file.id, filename: file.filename, caseTitle: file.title, projectId: file.projectId })
     },
-    onRequest: async (id: string, input: api.NewDocumentRequest) => {
-      await api.createDocumentRequest(id, input)
-      await refreshCases()
-    },
-    onFulfill: async (id: string, requestId: string, fileId: string) => {
-      await api.fulfillDocumentRequest(id, requestId, fileId)
-      await refreshCases()
-    },
+    onRequest: thenRefresh(api.createDocumentRequest),
+    onFulfill: thenRefresh(api.fulfillDocumentRequest),
     onFulfillUpload: async (id: string, requestId: string, input: api.NewCaseFile) => {
       const before = new Set(cases.find((c) => c.id === id)?.files.map((f) => f.id) ?? [])
       const updated = await api.addCaseFile(id, input)
@@ -367,14 +358,8 @@ export default function App() {
       if (added) await api.fulfillDocumentRequest(id, requestId, added.id)
       await refreshCases()
     },
-    onDecline: async (id: string, requestId: string, reply: string) => {
-      await api.declineDocumentRequest(id, requestId, reply)
-      await refreshCases()
-    },
-    onCancelRequest: async (id: string, requestId: string) => {
-      await api.cancelDocumentRequest(id, requestId)
-      await refreshCases()
-    },
+    onDecline: thenRefresh(api.declineDocumentRequest),
+    onCancelRequest: thenRefresh(api.cancelDocumentRequest),
   }
 
   /** ที่เก็บที่มีเอกสารของโปรเจคที่เปิดอยู่แล้ว — ตั้งเป็นค่าเริ่มต้นตอนส่งเอกสารจากบอร์ด */
@@ -528,16 +513,14 @@ export default function App() {
             currentMemberId={auth?.member?.id ?? null}
             onClaimTask={claimTask}
             onOpenTask={(id) => setSelectedTaskId(id || null)}
-            onSetSubtaskStatus={(id, status) => void sync(() => api.updateTask(id, { status }))}
+            onSetSubtaskStatus={(id, status) => patchTask(id, { status })}
             onAddTask={addTask}
-            onChangeStatus={(taskId, status) => void sync(() => api.updateTask(taskId, { status }))}
+            onChangeStatus={(taskId, status) => patchTask(taskId, { status })}
             onToggleAssignee={toggleAssignee}
-            onSetPriority={(taskId, priority: PriorityId) => void sync(() => api.updateTask(taskId, { priority }))}
-            onSetDue={(taskId, dueDate) => void sync(() => api.updateTask(taskId, { dueDate }))}
-            onSetCategory={(taskId, category) => void sync(() => api.updateTask(taskId, { category }))}
-            onSetDescription={(taskId, description) =>
-              void sync(() => api.updateTask(taskId, { description }))
-            }
+            onSetPriority={(taskId, priority: PriorityId) => patchTask(taskId, { priority })}
+            onSetDue={(taskId, dueDate) => patchTask(taskId, { dueDate })}
+            onSetCategory={(taskId, category) => patchTask(taskId, { category })}
+            onSetDescription={(taskId, description) => patchTask(taskId, { description })}
             onDeleteTask={(id) => {
               deleteTask(id)
               if (id === selectedTaskId) setSelectedTaskId(null)
@@ -553,10 +536,7 @@ export default function App() {
       </main>
 
       {view === "documents" && activeCaseView && (
-        <div className={"rs-wrap" + (panelOpen ? " is-open" : "")}>
-        <button type="button" className="rs-close" aria-label="Close side panel" onClick={() => setPanelOpen(false)}>
-          <IconClose size={14} />
-        </button>
+        <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)}>
           <DocumentPanel
             key={activeCaseView.id}
             c={activeCaseView}
@@ -566,14 +546,11 @@ export default function App() {
             onManageMembers={caseActions.onManageMembers}
             onClose={() => setActiveCaseId(null)}
           />
-        </div>
+        </SidePanel>
       )}
 
       {view === "board" && (
-      <div className={"rs-wrap" + (panelOpen ? " is-open" : "")}>
-        <button type="button" className="rs-close" aria-label="Close side panel" onClick={() => setPanelOpen(false)}>
-          <IconClose size={14} />
-        </button>
+      <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)}>
         {/* key ตามคนที่ล็อกอิน — แผง GitHub ดึงข้อมูลตอน mount ถ้าไม่ remount หลังล็อกอิน
             จะค้างข้อความ "sign in first" ไปจนกว่าจะถึงรอบ poll ถัดไป (5 นาที) */}
         <RightSidebar
@@ -595,7 +572,7 @@ export default function App() {
           onRequestDocument={() => setBoardReqOpen(true)}
           onOpenDocument={(id) => { setView("documents"); setActiveCaseId(id) }}
         />
-      </div>
+      </SidePanel>
       )}
 
       {canManage && view === "board" && (
@@ -657,7 +634,7 @@ export default function App() {
       {memberModalOpen && project && (
         <AddMemberModal
           linkedSpaces={cases
-            .filter((c) => c.files.some((f) => f.projectId === project.id) && me !== null && (c.ownerId === me || c.adminIds.includes(me)))
+            .filter((c) => c.files.some((f) => f.projectId === project.id) && canManageAs(c, me))
             .map((c) => ({ id: c.id, title: c.title, memberIds: c.memberIds }))}
           onAddToSpace={(spaceId, memberId) => void api.addCaseMember(spaceId, memberId).then(refreshCases)}
           projectName={project.name}
@@ -723,6 +700,18 @@ export default function App() {
           onImported={refreshMembers}
         />
       )}
+    </div>
+  )
+}
+
+/** กรอบแผงขวา — จอแคบกลายเป็นลิ้นชักที่ปิดได้ จอกว้างแสดงค้างไว้ (ดู .rs-wrap ใน App.css) */
+function SidePanel({ open, onClose, children }: { open: boolean; onClose: () => void; children: ReactNode }) {
+  return (
+    <div className={"rs-wrap" + (open ? " is-open" : "")}>
+      <button type="button" className="rs-close" aria-label="Close side panel" onClick={onClose}>
+        <IconClose size={14} />
+      </button>
+      {children}
     </div>
   )
 }

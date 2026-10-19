@@ -13,7 +13,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, 
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import ai, mailer, notify
+from app import ai, notify
 from app.auth import require_member
 from app.config import get_settings
 from app.db import SessionLocal, get_session
@@ -42,6 +42,15 @@ router = APIRouter(prefix="/api/github", tags=["github"])
 TASK_REF = re.compile(r"#?\b([A-Za-z][A-Za-z0-9]{0,9})-0*(\d+)\b")
 
 
+async def _projects_for_repo(session: AsyncSession, repo: str) -> list[Project]:
+    """โปรเจคทุกตัวที่ผูก repo นี้ — repo เดียวผูกได้หลายโปรเจค"""
+    return list(await session.scalars(select(Project).where(Project.github_repo == repo)))
+
+
+def _can_push(repo: dict) -> bool:
+    return bool((repo.get("permissions") or {}).get("push"))
+
+
 def _read_ref(text: str) -> str | None:
     """ดึงรหัสงานจากข้อความ คืนรูปแบบมาตรฐานตัวใหญ่ เช่น "KST-1" -> "KST-001\""""
     match = TASK_REF.search(text)
@@ -67,9 +76,7 @@ async def _advance_referenced_tasks(
     if not repo or not refs:
         return []
 
-    projects = list(
-        await session.scalars(select(Project).where(Project.github_repo == repo))
-    )
+    projects = await _projects_for_repo(session, repo)
     if not projects:
         return []
 
@@ -140,9 +147,7 @@ async def _suggest_matches(repo: str | None, event_ids: list[str]) -> None:
         return
 
     async with SessionLocal() as session:
-        projects = list(
-            await session.scalars(select(Project).where(Project.github_repo == repo))
-        )
+        projects = await _projects_for_repo(session, repo)
         if not projects:
             return
 
@@ -271,7 +276,7 @@ async def require_push_access(member: Member, repo: str) -> str:
     data = await _github_get(
         _need_token(member), f"https://api.github.com/repos/{check_repo_name(repo)}"
     )
-    if not (data.get("permissions") or {}).get("push"):
+    if not _can_push(data):
         raise HTTPException(403, "You need push access to link this repository")
     return data["full_name"]
 
@@ -337,7 +342,7 @@ async def auto_join_projects(session: AsyncSession, member: Member) -> list[str]
         # GitHub ล่มหรือ token หมดสิทธิ์ ก็ต้องล็อกอินผ่านอยู่ดี แค่ไม่ได้ auto-join
         return []
 
-    repos = {r["full_name"] for r in rows if (r.get("permissions") or {}).get("push")}
+    repos = {r["full_name"] for r in rows if _can_push(r)}
     if not repos:
         return []
 
@@ -350,7 +355,7 @@ async def auto_join_projects(session: AsyncSession, member: Member) -> list[str]
         select(Project).where(Project.github_repo.in_(repos), Project.id.not_in(removed))
     )
     for project in projects:
-        if member.id not in {m.id for m in project.members}:
+        if not project.has_member(member.id):
             project.members.append(member)
             joined.append(project.name)
 
@@ -378,7 +383,7 @@ async def my_repos(member: Member = Depends(require_member)) -> list[dict]:
             "collaborator_count": None,
         }
         for r in rows
-        if (r.get("permissions") or {}).get("push")
+        if _can_push(r)
     ]
 
 
@@ -435,7 +440,7 @@ async def commits(
     ใช้ token ของคนดูถ้ามี (repo ส่วนตัว) ไม่มีก็ยิงแบบไม่ล็อกอิน ซึ่งอ่านได้เฉพาะ repo สาธารณะ
     """
     project = await session.get(Project, project_id)
-    if project is None or member.id not in {m.id for m in project.members}:
+    if project is None or not project.has_member(member.id):
         raise HTTPException(404, f"Project {project_id} not found")
     if not project.github_repo:
         return []
@@ -483,7 +488,7 @@ async def events(
     เดิมคืนทุก event ให้ทุกคน ซึ่งพอเปิดสมัครบัญชีธรรมดาได้แปลว่าใครก็เห็นงานของทุกโปรเจค
     """
     project = await session.get(Project, project_id)
-    if project is None or me.id not in {m.id for m in project.members}:
+    if project is None or not project.has_member(me.id):
         raise HTTPException(404, f"Project {project_id} not found")
     if not project.github_repo:
         return []
@@ -506,7 +511,7 @@ async def events(
             select(Task).where(Task.id.in_(wanted), Task.project_id == project.id)
         )
         for task in found:
-            tasks[task.id] = (f"{project.task_prefix}-{task.number:03d}", task.title)
+            tasks[task.id] = (project.task_key(task), task.title)
 
     out = []
     for r in rows:
@@ -559,7 +564,7 @@ async def apply_suggestion(
     event.suggested_task_id = None
     event.suggest_confidence = None
     event.suggest_reason = None
-    event.task_ref = f"{project.task_prefix}-{task.number:03d}"
+    event.task_ref = project.task_key(task)
 
     await session.commit()
     await session.refresh(task)
@@ -617,9 +622,9 @@ async def webhook(
         )
         for project, task in moved:
             to = await notify.emails_of(session, {m.id for m in task.assignees})
-            if to:
-                subject, body = notify.task_reworked(project, task, who, reason, review_url)
-                background.add_task(mailer.send, to, subject, body)
+            notify.queue(
+                background, to, notify.task_reworked(project, task, who, reason, review_url)
+            )
 
     # commit ที่ลืมใส่รหัสงาน ให้ AI เดาให้ทีหลัง แล้วเก็บไว้รอคนยืนยัน
     unmatched = [e.id for e, (*_, ref) in zip(saved, rows, strict=True) if not ref]

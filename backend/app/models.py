@@ -1,4 +1,5 @@
-"""ตาราง 5 ตัว: members, projects, tasks + ตารางเชื่อม 2 ตัว
+"""ตารางของระบบ: บอร์ดงาน (members, projects, tasks, task_comments),
+ที่เก็บเอกสาร (cases, case_files, document_requests), webhook_events และตารางเชื่อม
 
 สถานะกับความสำคัญเก็บเป็น string ไม่ได้ใช้ ENUM ของ postgres
 เพราะ ENUM แก้ทีหลังต้องเขียน migration เอง ส่วนการตรวจค่าให้ pydantic ทำแทน
@@ -8,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, date, datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     JSON,
@@ -24,10 +26,15 @@ from sqlalchemy import (
     Table,
     Text,
     UniqueConstraint,
+    func,
+    select,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from app import crypto
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 def _uuid() -> str:
@@ -153,9 +160,16 @@ class Project(Base):
     def admin_ids(self) -> set[str]:
         return {pm.member_id for pm in self.memberships if pm.role == "admin"}
 
+    def has_member(self, member_id: str | None) -> bool:
+        return any(m.id == member_id for m in self.members)
+
     def can_manage(self, member_id: str | None) -> bool:
         """เจ้าของหรือ admin — ใช้แทนการเช็ค owner_id ตรง ๆ ในทุก endpoint"""
         return member_id is not None and (member_id == self.owner_id or member_id in self.admin_ids)
+
+    def task_key(self, task: Task) -> str:
+        """รหัสงานที่คนเห็น เช่น KST-001 — รูปแบบเดียวกับที่อ่านจากข้อความ commit"""
+        return f"{self.task_prefix}-{task.number:03d}"
 
 
 class ProjectMember(Base):
@@ -241,6 +255,19 @@ class Task(Base):
 
     project: Mapped[Project] = relationship(back_populates="tasks")
     assignees: Mapped[list[Member]] = relationship(secondary=task_assignees, lazy="selectin")
+
+    def is_assigned(self, member_id: str | None) -> bool:
+        return any(m.id == member_id for m in self.assignees)
+
+
+async def end_of_column(session: AsyncSession, project_id: str, status: str) -> float:
+    """ตำแหน่งต่อท้ายคอลัมน์ — การ์ดที่สร้างใหม่หรือย้ายเข้ามาโดยไม่ได้ระบุลำดับไปอยู่ล่างสุด"""
+    last = await session.scalar(
+        select(func.max(Task.position)).where(
+            Task.project_id == project_id, Task.status == status
+        )
+    )
+    return (last or 0.0) + 1000.0
 
 
 def apply_status_change(task: Task, new_status: str, *, by_reviewer: bool = True) -> None:
@@ -348,6 +375,9 @@ class Case(Base):
     def admin_ids(self) -> set[str]:
         return {cm.member_id for cm in self.memberships if cm.role == "admin"}
 
+    def has_member(self, member_id: str | None) -> bool:
+        return any(m.id == member_id for m in self.members)
+
     def can_manage(self, member_id: str | None) -> bool:
         """เจ้าของหรือ admin ของที่เก็บ — เปลี่ยนชื่อ เพิ่มคน แก้ข้อมูลเอกสาร ผูกโปรเจค"""
         return member_id is not None and (member_id == self.owner_id or member_id in self.admin_ids)
@@ -359,6 +389,10 @@ class CaseMember(Base):
     __table__ = case_members
 
     member: Mapped[Member] = relationship(lazy="selectin", overlaps="members")
+
+
+#: สถานะเอกสารที่ยังนับว่าเรื่องไม่จบ — ใช้ตัดสินว่าต้องแจ้งเตือนใกล้/เลยกำหนดส่งหรือไม่
+DOC_OPEN_STATUSES = ("received", "in_progress")
 
 
 class CaseFile(Base):

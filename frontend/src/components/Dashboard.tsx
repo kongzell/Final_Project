@@ -1,5 +1,5 @@
-import { useEffect } from "react"
 import type { Member, Project } from "../types"
+import { useEscape } from "../hooks"
 import { IconClose, IconTaskList, IconUsers } from "./Icons"
 import { MemberPanel } from "./MemberDashboard"
 import { ProjectPanel } from "./ProjectDashboard"
@@ -27,11 +27,7 @@ type Props = {
 export function Dashboard({
   project, members, tab, memberId, onChangeTab, onSelectMember, onOpenTask, onClose,
 }: Props) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose()
-    document.addEventListener("keydown", onKey)
-    return () => document.removeEventListener("keydown", onKey)
-  }, [onClose])
+  useEscape(onClose)
 
   // เปิดแท็บ People โดยยังไม่ได้เลือกใคร ให้เริ่มที่คนแรกไปก่อน
   const activeMember = memberId ?? members[0]?.id ?? null

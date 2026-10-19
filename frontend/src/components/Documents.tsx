@@ -4,7 +4,9 @@ import { caseFileUrl } from "../api"
 import type {
   Case, CaseDirectoryEntry, CaseFile, CaseStatus, DocumentRequest, FileCategory, Member, Project,
 } from "../types"
-import { CASE_STATUSES, currentFiles, FILE_CATEGORIES, formatBytes, todayIso } from "../types"
+import {
+  canManageAs, CASE_STATUSES, currentFiles, FILE_CATEGORIES, formatBytes, formatDayMonth, todayIso,
+} from "../types"
 import { ACCEPT, MAX_BYTES } from "./AddDocumentModal"
 import { Avatar } from "./Avatar"
 import { DocumentFileModal } from "./DocumentFileModal"
@@ -141,14 +143,11 @@ function Workspace({
   onRequest, onFulfill, onFulfillUpload, onDecline, onCancelRequest,
 }: WorkspaceProps) {
   const isOwner = currentMemberId !== null && c.ownerId === currentMemberId
-  const canManage = isOwner || (currentMemberId !== null && c.adminIds.includes(currentMemberId))
+  const canManage = canManageAs(c, currentMemberId)
   /** แก้ข้อมูลใบนี้ได้ — คนส่งเอง หรือเจ้าของ/admin ของที่เก็บ (กติกาเดียวกับ API) */
   const canEdit = (f: CaseFile) => canManage || (currentMemberId !== null && f.uploadedBy === currentMemberId)
-  const linkable = projects.filter(
-    (p) => currentMemberId !== null && (p.ownerId === currentMemberId || p.adminIds.includes(currentMemberId)),
-  )
-  const canBreakdownIn = (p: Project | null) =>
-    p !== null && currentMemberId !== null && (p.ownerId === currentMemberId || p.adminIds.includes(currentMemberId))
+  const linkable = projects.filter((p) => canManageAs(p, currentMemberId))
+  const canBreakdownIn = (p: Project | null) => canManageAs(p, currentMemberId)
 
   const [error, setError] = useState<string | null>(null)
   const [renaming, setRenaming] = useState(false)
@@ -732,7 +731,7 @@ type PanelProps = {
 
 export function DocumentPanel({ c, members, currentMemberId, onDelete, onManageMembers, onClose }: PanelProps) {
   const isOwner = currentMemberId !== null && c.ownerId === currentMemberId
-  const canManage = isOwner || (currentMemberId !== null && c.adminIds.includes(currentMemberId))
+  const canManage = canManageAs(c, currentMemberId)
   const people = members.filter((m) => c.memberIds.includes(m.id))
   const files = currentFiles(c)
   const [error, setError] = useState<string | null>(null)
@@ -805,9 +804,6 @@ export function DocumentPanel({ c, members, currentMemberId, onDelete, onManageM
 
 // ---------- คอลัมน์ Requests (คอลัมน์แรกของกระดาน) ----------
 
-const fmtWhen = (iso: string) =>
-  new Date(iso).toLocaleDateString("th-TH", { day: "numeric", month: "short" })
-
 type RequestColumnProps = {
   c: Case
   files: CaseFile[]
@@ -856,7 +852,7 @@ function RequestColumn({
           {incoming.map((r) => (
             <li key={r.id} className="req-item is-in">
               <div className="req-title">{r.title}</div>
-              <div className="req-meta">{spaceName(r.fromCaseId)} · {who(r.requestedBy)} · {fmtWhen(r.createdAt)}</div>
+              <div className="req-meta">{spaceName(r.fromCaseId)} · {who(r.requestedBy)} · {formatDayMonth(r.createdAt)}</div>
               {r.note && <p className="req-note">{r.note}</p>}
               {canManage ? (
                 <div className="req-answer">
@@ -912,7 +908,7 @@ function RequestColumn({
                   {statusChip(r)}
                 </div>
                 <div className="req-meta">
-                  to {spaceName(r.toCaseId)} · {fmtWhen(r.createdAt)}
+                  to {spaceName(r.toCaseId)} · {formatDayMonth(r.createdAt)}
                   {r.status === "fulfilled" && r.fileId && !files.some((f) => f.id === r.fileId) && " · copy deleted"}
                 </div>
                 {r.status === "declined" && r.reply && <p className="req-note">"{r.reply}"</p>}

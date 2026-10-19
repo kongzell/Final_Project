@@ -1,8 +1,8 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import mailer, notify
+from app import notify
 from app.auth import require_member
 from app.db import get_session
 from app.models import (
@@ -11,6 +11,7 @@ from app.models import (
     Task,
     TaskComment,
     apply_status_change,
+    end_of_column,
     project_members,
 )
 from app.schemas import CommentCreate, CommentOut, TaskOut, TaskUpdate
@@ -52,13 +53,9 @@ async def _park_if_unclaimed(session: AsyncSession, task: Task) -> None:
         return
 
     # ต่อท้ายคอลัมน์ปลายทาง เหมือนตอนย้ายด้วยวิธีอื่น — อ่านลำดับก่อนเปลี่ยนสถานะ
-    last = await session.scalar(
-        select(func.max(Task.position)).where(
-            Task.project_id == task.project_id, Task.status == "todo"
-        )
-    )
+    position = await end_of_column(session, task.project_id, "todo")
     apply_status_change(task, "todo")
-    task.position = (last or 0.0) + 1000.0
+    task.position = position
 
 
 @router.patch("/{task_id}", response_model=TaskOut)
@@ -82,7 +79,7 @@ async def update_task(
             )
         if moving:
             # งานของคนอื่นไม่ใช่เรื่องของเรา — ไม่งั้นสมาชิกตีกลับงานเพื่อนได้ และ rework ไปนับที่เพื่อน
-            if me.id not in {m.id for m in task.assignees}:
+            if not task.is_assigned(me.id):
                 raise HTTPException(
                     403, "You can only move tasks you have taken — press Take it first"
                 )
@@ -107,13 +104,8 @@ async def update_task(
             )
 
     # ย้ายคอลัมน์แล้วไม่ได้สั่งลำดับมาด้วย -> ต่อท้ายคอลัมน์ปลายทาง
-    if "status" in data and data["status"] != task.status and "position" not in data:
-        last = await session.scalar(
-            select(func.max(Task.position)).where(
-                Task.project_id == task.project_id, Task.status == data["status"]
-            )
-        )
-        data["position"] = (last or 0.0) + 1000.0
+    if moving and "position" not in data:
+        data["position"] = await end_of_column(session, task.project_id, data["status"])
 
     # แก้กำหนดส่งใหม่ หรือเปิดงานที่ปิดแล้วขึ้นมาทำต่อ ให้แจ้งเตือน "เลยกำหนดส่ง" ได้อีกรอบ
     # ถ้าไม่ล้างไว้ งานที่เคยเลยกำหนดแล้วโดนแจ้งไปแล้วจะไม่มีทางแจ้งซ้ำอีกเลยแม้เลยกำหนดใหม่จริง ๆ
@@ -161,14 +153,15 @@ async def assign(
     session: AsyncSession = Depends(get_session),
 ) -> TaskOut:
     task, project = await _task_with_project(session, task_id, me)
+    manager = project.can_manage(me.id)
 
     # สมาชิกรับงานเข้าตัวเองได้ แต่มอบหมายให้คนอื่นเป็นเรื่องของเจ้าของ
-    if not project.can_manage(me.id) and member_id != me.id:
+    if not manager and member_id != me.id:
         raise HTTPException(
             403, "Only the project owner or an admin can assign work to someone else"
         )
     # งานที่ปิดแล้วไม่มีอะไรให้ทำต่อ — รับไปก็ได้แค่ชื่อขึ้นการ์ดและภาระงานในแดชบอร์ดเพี้ยน
-    if not project.can_manage(me.id) and task.status == "complete":
+    if not manager and task.status == "complete":
         raise HTTPException(400, "This task is already done")
 
     member = await session.get(Member, member_id)
@@ -185,7 +178,7 @@ async def assign(
     if in_project is None:
         raise HTTPException(400, "That person is not in this project")
 
-    if member.id not in {m.id for m in task.assignees}:
+    if not task.is_assigned(member.id):
         task.assignees.append(member)
         await session.commit()
         await session.refresh(task)
@@ -194,10 +187,7 @@ async def assign(
         # ตัดคนที่กดปุ่มเองออก เพราะเขารู้อยู่แล้ว
         watchers = {project.owner_id, member.id} - {me.id, None}
         to = await notify.emails_of(session, watchers)
-        if to:
-            subject, body = notify.task_claimed(project, task, member)
-            background.add_task(mailer.send, to, subject, body)
-        else:
+        if not notify.queue(background, to, notify.task_claimed(project, task, member)):
             notify.explain_skip("รับงาน", task, len(watchers), 0)
     return task_out(task)
 
@@ -265,8 +255,7 @@ async def add_comment(
     """
     task, project = await _task_with_project(session, task_id, me)
 
-    mine = any(m.id == me.id for m in task.assignees)
-    if not mine and not project.can_manage(me.id):
+    if not task.is_assigned(me.id) and not project.can_manage(me.id):
         raise HTTPException(403, "Only the people on this task and the project owner can comment")
 
     body = payload.body.strip()

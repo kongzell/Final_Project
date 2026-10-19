@@ -193,6 +193,20 @@ export function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`
 }
 
+/** เจ้าของหรือ admin ของโปรเจค/ที่เก็บ — กติกาเดียวกับ can_manage ฝั่ง API */
+export const canManageAs = (
+  x: { ownerId: string | null; adminIds: string[] } | null,
+  memberId: string | null,
+): boolean => x !== null && memberId !== null && (x.ownerId === memberId || x.adminIds.includes(memberId))
+
+/** "12 ม.ค." — วันที่ล้วน (YYYY-MM-DD) อ่านเป็นเที่ยงคืนเวลาท้องถิ่น ไม่ใช่ UTC
+ *  ไม่งั้นเครื่องที่โซนเวลาช้ากว่า UTC จะเห็นวันเลื่อนไปหนึ่งวัน */
+export const formatDayMonth = (iso: string): string =>
+  new Date(iso.length === 10 ? iso + "T00:00:00" : iso).toLocaleDateString("th-TH", {
+    day: "numeric",
+    month: "short",
+  })
+
 /** รหัสงานที่เอาไปพิมพ์ใน commit ได้ เช่น KST-001 */
 export const taskKey = (prefix: string, number: number) =>
   `${prefix}-${String(number).padStart(3, "0")}`

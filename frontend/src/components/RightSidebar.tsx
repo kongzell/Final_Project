@@ -3,7 +3,9 @@ import type { Commit, SystemHealth, WebhookEvent } from "../api"
 import { applySuggestion, getCommits, getSystemHealth, getWebhookEvents } from "../api"
 import { caseFileUrl } from "../api"
 import type { CaseFile, Member, Project, ProjectDocuments, Task } from "../types"
-import { boardTasks, CASE_STATUSES, openTasksOf, taskPoints, WORKLOAD_CAPACITY, workloadLevel } from "../types"
+import {
+  boardTasks, CASE_STATUSES, formatDayMonth, openTasksOf, taskPoints, WORKLOAD_CAPACITY, workloadLevel,
+} from "../types"
 import { Avatar } from "./Avatar"
 import { IconFile, IconPlus } from "./Icons"
 import "./RightSidebar.css"
@@ -322,7 +324,7 @@ function ago(iso: string): string {
   if (hours < 24) return `${hours}h ago`
   const days = Math.floor(hours / 24)
   if (days < 7) return `${days}d ago`
-  return new Date(iso).toLocaleDateString("th-TH", { day: "numeric", month: "short" })
+  return formatDayMonth(iso)
 }
 
 /** โควตา GitHub แบบไม่ล็อกอินคือ 60 ครั้ง/ชม. ถามทุก 5 นาที = 12 ครั้ง/ชม. */

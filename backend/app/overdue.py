@@ -9,7 +9,7 @@ from sqlalchemy import exists, or_, select
 from app import mailer, notify
 from app.config import LOCAL_TZ
 from app.db import SessionLocal
-from app.models import Case, CaseFile, Project, Task
+from app.models import DOC_OPEN_STATUSES, Case, CaseFile, Project, Task
 
 log = logging.getLogger("overdue")
 
@@ -18,7 +18,6 @@ CHECK_INTERVAL_SECONDS = 60 * 60
 
 #: แจ้ง "ใกล้กำหนดส่ง" ล่วงหน้ากี่วัน — หนังสือราชการมักให้เวลาเป็นสัปดาห์ 3 วันพอทันเตรียม
 DOC_DUE_SOON_DAYS = 3
-DOC_OPEN_STATUSES = ("received", "in_progress")
 
 # "วันนี้" ต้องเป็นวันตามปฏิทินไทย (LOCAL_TZ ใน config) — ถ้าใช้ date.today() ของคอนเทนเนอร์
 # ซึ่งเป็น UTC การ์ดจะขึ้นสีส้มบนหน้าเว็บตั้งแต่เที่ยงคืนไทย แต่อีเมลไม่ออกจนกว่าจะ 7 โมงเช้า

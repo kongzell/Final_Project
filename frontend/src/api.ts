@@ -82,6 +82,25 @@ async function readError(res: Response): Promise<string> {
   return `Server responded with ${res.status}`
 }
 
+/** ยิง API แล้วโยน ApiError เมื่อไม่สำเร็จ — ทุกฟังก์ชันในไฟล์นี้ผ่านตัวนี้ */
+async function request(path: string, init?: RequestInit): Promise<Response> {
+  const res = await fetch(path, init)
+  if (!res.ok) throw new ApiError(await readError(res), res.status)
+  return res
+}
+
+/** เหมือน request แต่อ่านคำตอบเป็น JSON */
+async function json<T>(path: string, init?: RequestInit): Promise<T> {
+  return (await request(path, init)).json()
+}
+
+/** ส่ง body เป็น JSON ด้วย method ที่ระบุ */
+const withJson = (method: string, body: unknown): RequestInit => ({
+  method,
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(body),
+})
+
 export async function breakdownTask(
   title: string,
   /** บริบทเพิ่มเติม — อยากบังคับวิธีแตกงานก็เขียนตรงนี้ AI จะทำตาม */
@@ -89,53 +108,35 @@ export async function breakdownTask(
   /** backend มีค่าเริ่มต้นให้อยู่แล้ว ส่งมาเฉพาะตอนอยากบังคับจำนวน */
   count?: number,
 ): Promise<BreakdownResult> {
-  const res = await fetch("/api/ai/breakdown", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(count === undefined ? { title, context } : { title, context, count }),
-  })
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
-  return res.json()
+  return json(
+    "/api/ai/breakdown",
+    withJson("POST", count === undefined ? { title, context } : { title, context, count }),
+  )
 }
 
 // ---------- documents ----------
 //
 
 export async function getCases(): Promise<Case[]> {
-  const res = await fetch("/api/cases")
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
-  return res.json()
+  return json("/api/cases")
 }
 
 export type NewCase = { title: string }
 
 /** สร้างที่เก็บด้วยชื่อ — เอกสารค่อยส่งเข้ามาทีหลังด้วย addCaseFile */
 export async function createCase(input: NewCase): Promise<Case> {
-  const res = await fetch("/api/cases", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  })
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
-  return res.json()
+  return json("/api/cases", withJson("POST", input))
 }
 
 export type CasePatch = { title: string }
 
 /** เปลี่ยนชื่อที่เก็บ — อย่างอื่นแก้ที่เอกสารแต่ละใบด้วย updateCaseFile */
 export async function updateCase(id: string, patch: CasePatch): Promise<Case> {
-  const res = await fetch(`/api/cases/${id}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(patch),
-  })
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
-  return res.json()
+  return json(`/api/cases/${id}`, withJson("PATCH", patch))
 }
 
 export async function deleteCase(id: string): Promise<void> {
-  const res = await fetch(`/api/cases/${id}`, { method: "DELETE" })
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
+  await request(`/api/cases/${id}`, { method: "DELETE" })
 }
 
 export type NewCaseFile = {
@@ -162,9 +163,7 @@ export async function addCaseFile(caseId: string, input: NewCaseFile): Promise<C
   if (input.deadline) form.append("deadline", input.deadline)
   if (input.projectId) form.append("project_id", input.projectId)
   if (input.replacesId) form.append("replaces_id", input.replacesId)
-  const res = await fetch(`/api/cases/${caseId}/files`, { method: "POST", body: form })
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
-  return res.json()
+  return json(`/api/cases/${caseId}/files`, { method: "POST", body: form })
 }
 
 export type CaseFilePatch = Partial<{
@@ -179,73 +178,42 @@ export type CaseFilePatch = Partial<{
 
 /** แก้ข้อมูลเอกสารใบเดียว — คืน Document ทั้งอันเพราะหน้าเว็บถือเป็นก้อนเดียว */
 export async function updateCaseFile(caseId: string, fileId: string, patch: CaseFilePatch): Promise<Case> {
-  const res = await fetch(`/api/cases/${caseId}/files/${fileId}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(patch),
-  })
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
-  return res.json()
+  return json(`/api/cases/${caseId}/files/${fileId}`, withJson("PATCH", patch))
 }
 
 /** ที่เก็บทุกอันในระบบ (ชื่อ+จำนวนคน ไม่มีไฟล์) — ไว้เลือกปลายทางตอนขอเอกสาร */
 export async function getCaseDirectory(): Promise<CaseDirectoryEntry[]> {
-  const res = await fetch("/api/cases/directory")
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
-  return res.json()
+  return json("/api/cases/directory")
 }
 
 export type NewDocumentRequest = { toCaseId: string; title: string; note?: string; projectId?: string }
 
 /** ขอเอกสารจากที่เก็บอื่น — คืนที่เก็บผู้ขอ (มี requestsOut ใหม่) */
 export async function createDocumentRequest(caseId: string, input: NewDocumentRequest): Promise<Case> {
-  const res = await fetch(`/api/cases/${caseId}/requests`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  })
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
-  return res.json()
+  return json(`/api/cases/${caseId}/requests`, withJson("POST", input))
 }
 
 /** ผู้ดูแลของที่เก็บที่ถูกขอ ส่งไฟล์ของตัวเองให้ — ระบบคัดลอกเข้าที่เก็บผู้ขอ */
 export async function fulfillDocumentRequest(caseId: string, requestId: string, fileId: string): Promise<Case> {
-  const res = await fetch(`/api/cases/${caseId}/requests/${requestId}/fulfill`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ fileId }),
-  })
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
-  return res.json()
+  return json(`/api/cases/${caseId}/requests/${requestId}/fulfill`, withJson("POST", { fileId }))
 }
 
 export async function declineDocumentRequest(caseId: string, requestId: string, reply: string): Promise<Case> {
-  const res = await fetch(`/api/cases/${caseId}/requests/${requestId}/decline`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ reply }),
-  })
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
-  return res.json()
+  return json(`/api/cases/${caseId}/requests/${requestId}/decline`, withJson("POST", { reply }))
 }
 
 /** ผู้ขอถอนคำขอที่ยังค้าง */
 export async function cancelDocumentRequest(caseId: string, requestId: string): Promise<Case> {
-  const res = await fetch(`/api/cases/${caseId}/requests/${requestId}`, { method: "DELETE" })
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
-  return res.json()
+  return json(`/api/cases/${caseId}/requests/${requestId}`, { method: "DELETE" })
 }
 
 /** เอกสาร + คำขอค้างของโปรเจค — สมาชิกโปรเจคเห็นทุกใบที่ผูก แม้ไม่ได้อยู่ในที่เก็บต้นทาง */
 export async function getProjectDocuments(projectId: string): Promise<ProjectDocuments> {
-  const res = await fetch(`/api/projects/${projectId}/documents`)
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
-  return res.json()
+  return json(`/api/projects/${projectId}/documents`)
 }
 
 export async function deleteCaseFile(caseId: string, fileId: string): Promise<void> {
-  const res = await fetch(`/api/cases/${caseId}/files/${fileId}`, { method: "DELETE" })
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
+  await request(`/api/cases/${caseId}/files/${fileId}`, { method: "DELETE" })
 }
 
 /** ลิงก์ดาวน์โหลด/เปิดไฟล์ — cookie ส่งไปเองเพราะโดเมนเดียวกัน */
@@ -259,23 +227,15 @@ export async function breakdownFile(
   fileId: string,
   context: string,
 ): Promise<BreakdownResult> {
-  const res = await fetch(`/api/cases/${caseId}/files/${fileId}/breakdown`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ context }),
-  })
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
-  return res.json()
+  return json(`/api/cases/${caseId}/files/${fileId}/breakdown`, withJson("POST", { context }))
 }
 
 export async function addCaseMember(caseId: string, memberId: string): Promise<void> {
-  const res = await fetch(`/api/cases/${caseId}/members/${memberId}`, { method: "POST" })
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
+  await request(`/api/cases/${caseId}/members/${memberId}`, { method: "POST" })
 }
 
 export async function removeCaseMember(caseId: string, memberId: string): Promise<void> {
-  const res = await fetch(`/api/cases/${caseId}/members/${memberId}`, { method: "DELETE" })
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
+  await request(`/api/cases/${caseId}/members/${memberId}`, { method: "DELETE" })
 }
 
 export async function setCaseMemberRole(
@@ -283,12 +243,7 @@ export async function setCaseMemberRole(
   memberId: string,
   role: "member" | "admin",
 ): Promise<void> {
-  const res = await fetch(`/api/cases/${caseId}/members/${memberId}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ role }),
-  })
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
+  await request(`/api/cases/${caseId}/members/${memberId}`, withJson("PATCH", { role }))
 }
 
 // ---------- projects & tasks ----------
@@ -366,38 +321,23 @@ const toProject = (p: ApiProject): Project => ({
 })
 
 export async function getProjects(): Promise<Project[]> {
-  const res = await fetch("/api/projects")
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
-  return (await res.json()).map(toProject)
+  return (await json<ApiProject[]>("/api/projects")).map(toProject)
 }
 
 export async function createProject(name: string, githubRepo: string | null): Promise<Project> {
-  const res = await fetch("/api/projects", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, githubRepo }),
-  })
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
-  return toProject(await res.json())
+  return toProject(await json("/api/projects", withJson("POST", { name, githubRepo })))
 }
 
 export async function updateProject(id: string, patch: { name?: string }): Promise<void> {
-  const res = await fetch(`/api/projects/${id}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(patch),
-  })
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
+  await request(`/api/projects/${id}`, withJson("PATCH", patch))
 }
 
 export async function deleteProject(id: string): Promise<void> {
-  const res = await fetch(`/api/projects/${id}`, { method: "DELETE" })
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
+  await request(`/api/projects/${id}`, { method: "DELETE" })
 }
 
 export async function addProjectMember(projectId: string, memberId: string): Promise<void> {
-  const res = await fetch(`/api/projects/${projectId}/members/${memberId}`, { method: "POST" })
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
+  await request(`/api/projects/${projectId}/members/${memberId}`, { method: "POST" })
 }
 
 /** ตั้งหรือถอด admin — เจ้าของโปรเจคเท่านั้น */
@@ -406,17 +346,11 @@ export async function setProjectMemberRole(
   memberId: string,
   role: "member" | "admin",
 ): Promise<void> {
-  const res = await fetch(`/api/projects/${projectId}/members/${memberId}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ role }),
-  })
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
+  await request(`/api/projects/${projectId}/members/${memberId}`, withJson("PATCH", { role }))
 }
 
 export async function removeProjectMember(projectId: string, memberId: string): Promise<void> {
-  const res = await fetch(`/api/projects/${projectId}/members/${memberId}`, { method: "DELETE" })
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
+  await request(`/api/projects/${projectId}/members/${memberId}`, { method: "DELETE" })
 }
 
 export type NewTask = {
@@ -437,13 +371,7 @@ export type NewTask = {
 }
 
 export async function createTask(projectId: string, task: NewTask): Promise<Task> {
-  const res = await fetch(`/api/projects/${projectId}/tasks`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(task),
-  })
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
-  return toTask(await res.json())
+  return toTask(await json(`/api/projects/${projectId}/tasks`, withJson("POST", task)))
 }
 
 export async function updateTask(
@@ -452,24 +380,15 @@ export async function updateTask(
     Pick<Task, "title" | "description" | "status" | "priority" | "dueDate" | "category">
   >,
 ): Promise<void> {
-  const res = await fetch(`/api/tasks/${id}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(patch),
-  })
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
+  await request(`/api/tasks/${id}`, withJson("PATCH", patch))
 }
 
 export async function deleteTask(id: string): Promise<void> {
-  const res = await fetch(`/api/tasks/${id}`, { method: "DELETE" })
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
+  await request(`/api/tasks/${id}`, { method: "DELETE" })
 }
 
 export async function setAssignee(taskId: string, memberId: string, on: boolean): Promise<void> {
-  const res = await fetch(`/api/tasks/${taskId}/assignees/${memberId}`, {
-    method: on ? "PUT" : "DELETE",
-  })
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
+  await request(`/api/tasks/${taskId}/assignees/${memberId}`, { method: on ? "PUT" : "DELETE" })
 }
 
 // ---------- auth ----------
@@ -497,13 +416,7 @@ export type AuthStatus = {
 
 /** ล็อกอินบัญชีธรรมดา — cookie ถูกตั้งให้โดย API เหมือน GitHub */
 export async function login(username: string, password: string): Promise<AuthMember> {
-  const res = await fetch("/api/auth/login", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password }),
-  })
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
-  return res.json()
+  return json("/api/auth/login", withJson("POST", { username, password }))
 }
 
 export async function register(input: {
@@ -512,19 +425,11 @@ export async function register(input: {
   password: string
   email?: string
 }): Promise<AuthMember> {
-  const res = await fetch("/api/auth/register", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  })
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
-  return res.json()
+  return json("/api/auth/register", withJson("POST", input))
 }
 
 export async function getAuthStatus(): Promise<AuthStatus> {
-  const res = await fetch("/api/auth/status")
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
-  return res.json()
+  return json("/api/auth/status")
 }
 
 export async function updateMyRole(role: string): Promise<AuthMember> {
@@ -537,13 +442,7 @@ export async function updateMyEmail(email: string): Promise<AuthMember> {
 }
 
 async function patchMe(patch: Record<string, string>): Promise<AuthMember> {
-  const res = await fetch("/api/auth/me", {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(patch),
-  })
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
-  return res.json()
+  return json("/api/auth/me", withJson("PATCH", patch))
 }
 
 export async function logout(): Promise<void> {
@@ -562,9 +461,7 @@ export type ApiMember = {
 }
 
 export async function getMembers(): Promise<ApiMember[]> {
-  const res = await fetch("/api/members")
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
-  return res.json()
+  return json("/api/members")
 }
 
 // ---------- ดึงรายชื่อจาก GitHub ----------
@@ -581,17 +478,13 @@ export type ImportResult = {
 export type GithubRepo = { fullName: string; private: boolean }
 
 export async function getMyRepos(): Promise<GithubRepo[]> {
-  const res = await fetch("/api/github/repos")
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
-  return res.json()
+  return json("/api/github/repos")
 }
 
 export async function importRepoCollaborators(repo: string): Promise<ImportResult> {
-  const res = await fetch(`/api/github/import-collaborators?repo=${encodeURIComponent(repo)}`, {
+  return json(`/api/github/import-collaborators?repo=${encodeURIComponent(repo)}`, {
     method: "POST",
   })
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
-  return res.json()
 }
 
 // ---------- system ----------
@@ -611,9 +504,7 @@ export type SystemHealth = {
 }
 
 export async function getSystemHealth(): Promise<SystemHealth> {
-  const res = await fetch("/api/system/health")
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
-  return res.json()
+  return json("/api/system/health")
 }
 
 // ---------- github ----------
@@ -645,20 +536,15 @@ export type WebhookEvent = {
 
 /** ยืนยันข้อเสนอของ AI แล้วย้ายการ์ดไป "รอตรวจ" — เจ้าของโปรเจคเท่านั้น */
 export async function applySuggestion(eventId: string): Promise<void> {
-  const res = await fetch(`/api/github/events/${eventId}/apply`, { method: "POST" })
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
+  await request(`/api/github/events/${eventId}/apply`, { method: "POST" })
 }
 
 export async function getCommits(projectId: string, limit = 8): Promise<Commit[]> {
-  const res = await fetch(`/api/github/commits?project_id=${projectId}&limit=${limit}`)
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
-  return res.json()
+  return json(`/api/github/commits?project_id=${projectId}&limit=${limit}`)
 }
 
 export async function getWebhookEvents(projectId: string, limit = 10): Promise<WebhookEvent[]> {
-  const res = await fetch(`/api/github/events?project_id=${projectId}&limit=${limit}`)
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
-  return res.json()
+  return json(`/api/github/events?project_id=${projectId}&limit=${limit}`)
 }
 
 
@@ -674,22 +560,13 @@ export type TaskComment = {
 }
 
 export async function getComments(taskId: string): Promise<TaskComment[]> {
-  const res = await fetch(`/api/tasks/${taskId}/comments`)
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
-  return res.json()
+  return json(`/api/tasks/${taskId}/comments`)
 }
 
 export async function addComment(taskId: string, body: string): Promise<TaskComment> {
-  const res = await fetch(`/api/tasks/${taskId}/comments`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ body }),
-  })
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
-  return res.json()
+  return json(`/api/tasks/${taskId}/comments`, withJson("POST", { body }))
 }
 
 export async function deleteComment(taskId: string, commentId: string): Promise<void> {
-  const res = await fetch(`/api/tasks/${taskId}/comments/${commentId}`, { method: "DELETE" })
-  if (!res.ok) throw new ApiError(await readError(res), res.status)
+  await request(`/api/tasks/${taskId}/comments/${commentId}`, { method: "DELETE" })
 }

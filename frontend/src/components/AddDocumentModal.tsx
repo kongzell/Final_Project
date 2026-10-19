@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react"
+import { useState } from "react"
+import { useEscape } from "../hooks"
 import type { NewCase } from "../api"
 import { IconClose, IconFolder } from "./Icons"
 import "./Modal.css"
@@ -19,11 +20,7 @@ export function NewDocumentModal({ onClose, onCreate }: Props) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose()
-    document.addEventListener("keydown", onKey)
-    return () => document.removeEventListener("keydown", onKey)
-  }, [onClose])
+  useEscape(onClose)
 
   const submit = async () => {
     if (!title.trim() || busy) return

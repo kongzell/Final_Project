@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react"
+import { useState } from "react"
+import { useEscape } from "../hooks"
 import type { NewDocumentRequest } from "../api"
 import type { Case, CaseDirectoryEntry, Member, Project } from "../types"
 import { IconClose, IconFolder } from "./Icons"
@@ -43,11 +44,7 @@ export function RequestDocumentModal({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose()
-    document.addEventListener("keydown", onKey)
-    return () => document.removeEventListener("keydown", onKey)
-  }, [onClose])
+  useEscape(onClose)
 
   const canSubmit = toCaseId !== "" && title.trim().length > 0 && fromCaseId !== ""
 

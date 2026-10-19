@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react"
 import type { Member, PriorityId, StatusId, Task } from "../types"
 import {
-  CATEGORIES, categoryColor, codeLink, COMPLEXITIES, formatDuration, formatEstimate, isOverdue, PRIORITIES,
-  STATUSES, taskKey,
+  CATEGORIES, categoryColor, codeLink, COMPLEXITIES, formatDayMonth, formatDuration, formatEstimate, isOverdue,
+  PRIORITIES, STATUSES, taskKey,
 } from "../types"
 import { Avatar } from "./Avatar"
 import { TaskComments } from "./TaskComments"
@@ -50,9 +50,6 @@ type Props = {
   onDelete: () => void
   onAddMember: () => void
 }
-
-const fmtDue = (iso: string) =>
-  new Date(iso + "T00:00:00").toLocaleDateString("th-TH", { day: "numeric", month: "short" })
 
 export function TaskCard({
   task, members, subtasks, blockers, sourceFile, taskPrefix, githubRepo, canManage, currentMemberId,
@@ -274,7 +271,7 @@ export function TaskCard({
               <IconHand size={12} /> Take it
             </button>
           )}
-          {task.dueDate && <span className="card-date">{fmtDue(task.dueDate)}</span>}
+          {task.dueDate && <span className="card-date">{formatDayMonth(task.dueDate)}</span>}
           {hasPriority && (
             <span className="card-prio" style={{ color: priority.color }}>{priority.label}</span>
           )}

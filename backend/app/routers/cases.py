@@ -30,10 +30,18 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app import ai, mailer, notify
+from app import ai, notify
 from app.auth import require_member
 from app.db import get_session
-from app.models import Case, CaseFile, DocumentRequest, Member, Project, case_members
+from app.models import (
+    DOC_OPEN_STATUSES,
+    Case,
+    CaseFile,
+    DocumentRequest,
+    Member,
+    Project,
+    case_members,
+)
 from app.schemas import (
     BreakdownResult,
     CaseCreate,
@@ -68,14 +76,12 @@ ALLOWED_TYPES = {
 }
 
 CATEGORIES = {"tor", "contract", "amendment", "minutes", "acceptance", "other"}
-#: สถานะที่ยังนับว่าเรื่องไม่จบ — ใช้ตัดสินว่าเลยกำหนดส่งหรือไม่
-OPEN_STATUSES = {"received", "in_progress"}
 
 
 async def _get_case(session: AsyncSession, case_id: str, me: Member) -> Case:
     """ที่เก็บที่ me เป็นสมาชิก — คนนอกได้ 404 เหมือนโปรเจค ไม่ยืนยันว่า id นี้มีจริง"""
     case = await session.get(Case, case_id)
-    if case is None or me.id not in {m.id for m in case.members}:
+    if case is None or not case.has_member(me.id):
         raise HTTPException(404, f"Document {case_id} not found")
     return case
 
@@ -128,9 +134,9 @@ async def _readable_file(session: AsyncSession, case_id: str, file_id: str, me: 
     f = await session.get(CaseFile, file_id, options=[selectinload(CaseFile.case)])
     if f is None or f.case_id != case_id:
         raise HTTPException(404, "File not found")
-    if me.id in {m.id for m in f.case.members}:
+    if f.case.has_member(me.id):
         return f
-    if f.project is not None and me.id in {m.id for m in f.project.members}:
+    if f.project is not None and f.project.has_member(me.id):
         return f
     raise HTTPException(404, "File not found")
 
@@ -147,6 +153,17 @@ async def _reload(session: AsyncSession, case_id: str) -> Case:
     )
     assert case is not None
     return case
+
+
+async def _saved(session: AsyncSession, case_id: str) -> CaseOut:
+    """บันทึกแล้วตอบด้วยที่เก็บฉบับล่าสุด — ทุก endpoint ที่แก้ที่เก็บตอบกลับแบบนี้"""
+    await session.commit()
+    return case_out(await _reload(session, case_id))
+
+
+def _clean(value: str | None) -> str | None:
+    """ช่องข้อความที่ไม่บังคับ — ตัดช่องว่างหัวท้าย พิมพ์มาแต่ช่องว่างถือว่าไม่ได้ใส่"""
+    return (value or "").strip() or None
 
 
 def _file_in(case: Case, file_id: str) -> CaseFile:
@@ -195,7 +212,7 @@ async def directory(
             title=c.title,
             owner_id=c.owner_id,
             member_count=n,
-            is_member=me.id in {m.id for m in c.members},
+            is_member=c.has_member(me.id),
         )
         for c, n in rows
     ]
@@ -214,15 +231,14 @@ async def create_case(
     case = Case(title=payload.title.strip(), owner_id=me.id)
     case.members.append(me)
     session.add(case)
-    await session.commit()
-    case = await _reload(session, case.id)
-    return case_out(case)
+    await session.flush()
+    return await _saved(session, case.id)
 
 
 async def _linkable_project(session: AsyncSession, project_id: str, me: Member) -> Project:
     """โปรเจคที่ me ผูกเอกสารได้ — ต้องเป็นเจ้าของ/admin ของโปรเจคนั้น (หลายใบผูกโปรเจคเดียวกันได้)"""
     project = await session.get(Project, project_id)
-    if project is None or me.id not in {m.id for m in project.members}:
+    if project is None or not project.has_member(me.id):
         raise HTTPException(404, f"Project {project_id} not found")
     if not project.can_manage(me.id):
         raise HTTPException(403, "You need to be the owner or an admin of that project to link it")
@@ -239,9 +255,7 @@ async def update_case(
     """เปลี่ยนชื่อที่เก็บ — เจ้าของหรือ admin"""
     case = await _get_managed_case(session, case_id, me)
     case.title = payload.title.strip()
-    await session.commit()
-    case = await _reload(session, case.id)
-    return case_out(case)
+    return await _saved(session, case.id)
 
 
 @router.delete("/{case_id}", status_code=204)
@@ -289,9 +303,9 @@ async def add_file(
         content_type=content_type,
         size=len(data),
         category=cat,
-        title=(title or "").strip() or filename.rsplit(".", 1)[0],
-        doc_number=(doc_number or "").strip() or None,
-        agency=(agency or "").strip() or None,
+        title=_clean(title) or filename.rsplit(".", 1)[0],
+        doc_number=_clean(doc_number),
+        agency=_clean(agency),
         deadline=_parse_date(deadline),
         data=data,
         uploaded_by=me.id,
@@ -307,7 +321,7 @@ async def add_file(
         new_file.replaces_id = prev.id
         new_file.category = prev.category
         new_file.status = prev.status
-        if not (title or "").strip():
+        if not _clean(title):
             new_file.title = prev.title
         new_file.doc_number = new_file.doc_number or prev.doc_number
         new_file.agency = new_file.agency or prev.agency
@@ -319,10 +333,7 @@ async def add_file(
     case = await _reload(session, case.id)
 
     to = await notify.case_emails(session, case_id, exclude={me.id})
-    if to:
-        subject, body = notify.file_added(case, new_file, me)
-        background.add_task(mailer.send, to, subject, body)
-    else:
+    if not notify.queue(background, to, notify.file_added(case, new_file, me)):
         candidates = len([m for m in case.members if m.id != me.id])
         log.info(
             "file_added %s — ไม่ส่งแจ้งเตือน: ผู้ที่ควรได้รับ %d คน แต่กรอกอีเมลไว้ 0 คน",
@@ -353,20 +364,18 @@ async def update_file(
             await _linkable_project(session, new_id, me)
         f.project_id = new_id
 
-    was_open = f.status in OPEN_STATUSES
+    was_open = f.status in DOC_OPEN_STATUSES
     for field, value in data.items():
         if field in ("title", "doc_number", "agency") and value is not None:
             value = value.strip() or (None if field != "title" else f.title)
         setattr(f, field, value)
 
     # เลื่อนกำหนดส่ง หรือเปิดเรื่องกลับมาจากส่งมอบ/ปิดแล้ว — ให้แจ้งเตือนรอบใหม่ได้
-    if "deadline" in data or (not was_open and f.status in OPEN_STATUSES):
+    if "deadline" in data or (not was_open and f.status in DOC_OPEN_STATUSES):
         f.due_soon_notified_at = None
         f.overdue_notified_at = None
 
-    await session.commit()
-    case = await _reload(session, case.id)
-    return case_out(case)
+    return await _saved(session, case.id)
 
 
 @router.get("/{case_id}/files/{file_id}")
@@ -436,11 +445,24 @@ async def breakdown_file(
 
 
 def _request_in(case: Case, request_id: str, *, incoming: bool) -> DocumentRequest:
+    """incoming คือคำขอที่ที่เก็บนี้ได้รับ ไม่ใช่ที่ส่งออกไป"""
     pool = case.requests_in if incoming else case.requests_out
     r = next((x for x in pool if x.id == request_id), None)
     if r is None:
         raise HTTPException(404, "Request not found")
     return r
+
+
+def _ensure_pending(req: DocumentRequest) -> None:
+    """คำขอที่จบแล้ว (ส่งให้/ปฏิเสธ) เก็บไว้เป็นประวัติ แก้หรือถอนไม่ได้"""
+    if req.status != "pending":
+        raise HTTPException(409, f"This request is already {req.status}")
+
+
+def _resolve(req: DocumentRequest, status: str, me: Member) -> None:
+    req.status = status
+    req.resolved_by = me.id
+    req.resolved_at = datetime.now(UTC)
 
 
 @router.post("/{case_id}/requests", response_model=CaseOut, status_code=201)
@@ -469,7 +491,7 @@ async def create_request(
         to_case_id=target.id,
         requested_by=me.id,
         title=payload.title,
-        note=payload.note.strip() or None,
+        note=_clean(payload.note),
         project_id=project_id,
     )
     session.add(req)
@@ -477,10 +499,7 @@ async def create_request(
     case = await _reload(session, case.id)
 
     to = await notify.case_manager_emails(session, target, exclude={me.id})
-    if to:
-        subject, body = notify.document_requested(target, case, req, me)
-        background.add_task(mailer.send, to, subject, body)
-    else:
+    if not notify.queue(background, to, notify.document_requested(target, case, req, me)):
         log.info(
             "document_requested %s — ไม่ส่งแจ้งเตือน: เจ้าของ/admin ของ %s ไม่มีอีเมล",
             req.title, target.title,
@@ -504,8 +523,7 @@ async def fulfill_request(
     """
     case = await _get_managed_case(session, case_id, me)
     req = _request_in(case, request_id, incoming=True)
-    if req.status != "pending":
-        raise HTTPException(409, f"This request is already {req.status}")
+    _ensure_pending(req)
     src = _file_in(case, payload.file_id)
     requester = await session.get(Case, req.from_case_id)
     if requester is None:
@@ -534,18 +552,15 @@ async def fulfill_request(
         session.add(copy)
         await session.flush()
         delivered_id = copy.id
-    req.status = "fulfilled"
+    _resolve(req, "fulfilled", me)
     req.file_id = delivered_id
-    req.resolved_by = me.id
-    req.resolved_at = datetime.now(UTC)
     await session.commit()
     case = await _reload(session, case.id)
 
     to = await notify.case_emails(session, requester.id, exclude={me.id})
-    if to:
-        subject, body = notify.document_request_resolved(requester, case, req, me)
-        background.add_task(mailer.send, to, subject, body)
-    else:
+    if not notify.queue(
+        background, to, notify.document_request_resolved(requester, case, req, me)
+    ):
         log.info(
             "document_request_resolved %s — ไม่ส่งแจ้งเตือน: สมาชิกของ %s ไม่มีอีเมล",
             req.title, requester.title,
@@ -564,20 +579,16 @@ async def decline_request(
 ) -> CaseOut:
     case = await _get_managed_case(session, case_id, me)
     req = _request_in(case, request_id, incoming=True)
-    if req.status != "pending":
-        raise HTTPException(409, f"This request is already {req.status}")
-    req.status = "declined"
-    req.reply = payload.reply.strip() or None
-    req.resolved_by = me.id
-    req.resolved_at = datetime.now(UTC)
+    _ensure_pending(req)
+    _resolve(req, "declined", me)
+    req.reply = _clean(payload.reply)
     await session.commit()
     case = await _reload(session, case.id)
 
     requester = await session.get(Case, req.from_case_id)
-    to = await notify.case_emails(session, req.from_case_id, exclude={me.id}) if requester else []
-    if to and requester:
-        subject, body = notify.document_request_resolved(requester, case, req, me)
-        background.add_task(mailer.send, to, subject, body)
+    if requester is not None:
+        to = await notify.case_emails(session, requester.id, exclude={me.id})
+        notify.queue(background, to, notify.document_request_resolved(requester, case, req, me))
     return case_out(case)
 
 
@@ -598,12 +609,9 @@ async def cancel_request(
         raise HTTPException(
             403, "Only the requester, the owner or an admin can cancel this request"
         )
-    if req.status != "pending":
-        raise HTTPException(409, f"This request is already {req.status}")
+    _ensure_pending(req)
     await session.delete(req)
-    await session.commit()
-    case = await _reload(session, case.id)
-    return case_out(case)
+    return await _saved(session, case.id)
 
 
 # ---------- สมาชิกของที่เก็บ (ล้อกับโปรเจค) ----------
@@ -620,7 +628,7 @@ async def add_member(
     member = await session.get(Member, member_id)
     if member is None:
         raise HTTPException(404, f"Member {member_id} not found")
-    if member.id not in {m.id for m in case.members}:
+    if not case.has_member(member.id):
         case.members.append(member)
         await session.commit()
 
@@ -655,7 +663,7 @@ async def set_member_role(
     case = await _get_owned_case(session, case_id, me)
     if member_id == case.owner_id:
         raise HTTPException(400, "The owner already has every permission")
-    if member_id not in {m.id for m in case.members}:
+    if not case.has_member(member_id):
         raise HTTPException(404, "That person is not in this document")
     await session.execute(
         update(case_members)

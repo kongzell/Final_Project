@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react"
+import { useRef, useState } from "react"
+import { useEscape } from "../hooks"
 import type { CaseFilePatch, NewCaseFile } from "../api"
 import type { Case, CaseFile, CaseStatus, FileCategory, Project } from "../types"
 import { CASE_STATUSES, FILE_CATEGORIES, formatBytes } from "../types"
@@ -45,11 +46,7 @@ export function DocumentFileModal({
   const fileInput = useRef<HTMLInputElement>(null)
   const titleHint = file ? file.name.replace(/\.[^.]+$/, "") : ""
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose()
-    document.addEventListener("keydown", onKey)
-    return () => document.removeEventListener("keydown", onKey)
-  }, [onClose])
+  useEscape(onClose)
 
   const pick = (f: File | null) => {
     setError(null)

@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import mailer, notify
+from app import notify
 from app.auth import require_member
 from app.db import get_session
 from app.models import (
@@ -17,6 +17,7 @@ from app.models import (
     Project,
     Task,
     apply_status_change,
+    end_of_column,
     project_members,
     project_removals,
     task_assignees,
@@ -54,7 +55,7 @@ async def _get_project(session: AsyncSession, project_id: str, me: Member) -> Pr
     เพราะ 403 เท่ากับบอกคนนอกว่า id นี้มีอยู่จริง
     """
     project = await session.get(Project, project_id)
-    if project is None or me.id not in {m.id for m in project.members}:
+    if project is None or not project.has_member(me.id):
         raise HTTPException(404, f"Project {project_id} not found")
     return project
 
@@ -160,7 +161,7 @@ async def set_member_role(
     project = await _get_owned_project(session, project_id, me)
     if member_id == project.owner_id:
         raise HTTPException(400, "The owner already has every permission")
-    if member_id not in {m.id for m in project.members}:
+    if not project.has_member(member_id):
         raise HTTPException(404, "That person is not in this project")
 
     await session.execute(
@@ -173,6 +174,7 @@ async def set_member_role(
     )
     await session.commit()
 
+
 @router.post("/{project_id}/members/{member_id}", status_code=204)
 async def add_member(
     project_id: str,
@@ -184,7 +186,7 @@ async def add_member(
     member = await session.get(Member, member_id)
     if member is None:
         raise HTTPException(404, f"Member {member_id} not found")
-    if member.id not in {m.id for m in project.members}:
+    if not project.has_member(member.id):
         project.members.append(member)
         # เพิ่มกลับด้วยมือ = ยกเลิกการเอาออก ต่อไปล็อกอินด้วย GitHub ก็เข้าโปรเจคเองได้ตามปกติ
         await session.execute(
@@ -245,6 +247,7 @@ async def remove_member(
 
 # ---------- งานในโปรเจค ----------
 
+
 @router.post("/{project_id}/tasks", response_model=TaskOut, status_code=201)
 async def create_task(
     project_id: str,
@@ -281,11 +284,7 @@ async def create_task(
         source_file_id = payload.source_file_id
 
     # วางต่อท้ายคอลัมน์ที่ระบุ
-    last = await session.scalar(
-        select(func.max(Task.position)).where(
-            Task.project_id == project_id, Task.status == payload.status
-        )
-    )
+    position = await end_of_column(session, project_id, payload.status)
     # เลขงานนับต่อจากใบล่าสุดของโปรเจคนี้
     # สองคนกดสร้างพร้อมกันอาจได้เลขชนกัน unique constraint จะกันไว้ แล้วลองใหม่
     for attempt in range(3):
@@ -301,7 +300,7 @@ async def create_task(
             status=payload.status,
             priority=payload.priority,
             due_date=payload.due_date,
-            position=(last or 0.0) + 1000.0,
+            position=position,
             category=payload.category,
             tags=payload.tags,
             estimate_hours=payload.estimate_hours,
@@ -325,10 +324,7 @@ async def create_task(
         # แจ้งเฉพาะการ์ดหลักที่โผล่บนบอร์ดจริง ๆ
         if task.parent_id is None:
             to = await notify.project_emails(session, project_id, exclude={me.id})
-            if to:
-                subject, body = notify.task_created(project, task, me)
-                background.add_task(mailer.send, to, subject, body)
-            else:
+            if not notify.queue(background, to, notify.task_created(project, task, me)):
                 others = len([m for m in project.members if m.id != me.id])
                 notify.explain_skip("งานใหม่", task, others, 0)
 

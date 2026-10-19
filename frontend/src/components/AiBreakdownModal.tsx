@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react"
+import { useState } from "react"
+import { useEscape } from "../hooks"
 import type { BreakdownResult, SubtaskSuggestion } from "../api"
 import { breakdownFile, breakdownTask } from "../api"
-import { CATEGORIES, categoryColor, COMPLEXITIES, formatEstimate } from "../types"
+import { CATEGORIES, categoryColor, COMPLEXITIES, formatDayMonth, formatEstimate } from "../types"
 import {
   IconCalendar, IconCheck, IconChevronDown, IconClose, IconFile, IconPencil, IconPlus,
   IconSparkle,
@@ -25,9 +26,6 @@ type Props = {
   onAdd: (parentTitle: string, picked: SubtaskSuggestion[]) => void
 }
 
-const fmtDue = (iso: string) =>
-  new Date(iso + "T00:00:00").toLocaleDateString("th-TH", { day: "numeric", month: "short" })
-
 export function AiBreakdownModal({ projectName, source, onClose, onAdd }: Props) {
   const [title, setTitle] = useState(source?.caseTitle ?? "")
   const [context, setContext] = useState("")
@@ -41,11 +39,7 @@ export function AiBreakdownModal({ projectName, source, onClose, onAdd }: Props)
   /** ใบที่กำลังแก้อยู่ — แก้ได้ทีละใบ จะได้ไม่ต้องเดาว่าอันไหนบันทึกแล้ว */
   const [editing, setEditing] = useState<number | null>(null)
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose()
-    document.addEventListener("keydown", onKey)
-    return () => document.removeEventListener("keydown", onKey)
-  }, [onClose])
+  useEscape(onClose)
 
   const run = async () => {
     const t = title.trim()
@@ -254,7 +248,7 @@ export function AiBreakdownModal({ projectName, source, onClose, onAdd }: Props)
                         <span className="ai-est">{formatEstimate(s.estimateHours)}</span>
                         {s.dueDate && (
                           <span className="ai-due" title="Due date taken from the schedule in the request">
-                            <IconCalendar size={11} /> {fmtDue(s.dueDate)}
+                            <IconCalendar size={11} /> {formatDayMonth(s.dueDate)}
                           </span>
                         )}
                         {s.dependsOn.length > 0 && (

@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react"
+import { useState } from "react"
+import { useEscape } from "../hooks"
 import { importRepoCollaborators } from "../api"
 import type { Member } from "../types"
 import { Avatar } from "./Avatar"
@@ -50,11 +51,7 @@ export function AddMemberModal({
       if (alsoSpaces.has(s.id) && !s.memberIds.includes(memberId)) onAddToSpace?.(s.id, memberId)
     }
   }
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose()
-    document.addEventListener("keydown", onKey)
-    return () => document.removeEventListener("keydown", onKey)
-  }, [onClose])
+  useEscape(onClose)
 
   const [query, setQuery] = useState("")
   const q = query.trim().toLowerCase()

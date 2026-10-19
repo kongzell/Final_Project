@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { useEscape } from "../hooks"
 import type { GithubRepo } from "../api"
 import { getMyRepos, importRepoCollaborators } from "../api"
 import { IconClose, IconGithub, IconPlus } from "./Icons"
@@ -20,11 +21,7 @@ export function AddProjectModal({ usedRepos, onClose, onAdd, onMembersChanged }:
   const [manual, setManual] = useState("")
   const [adding, setAdding] = useState<string | null>(null)
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose()
-    document.addEventListener("keydown", onKey)
-    return () => document.removeEventListener("keydown", onKey)
-  }, [onClose])
+  useEscape(onClose)
 
   useEffect(() => {
     let alive = true

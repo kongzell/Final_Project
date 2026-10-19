@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import logging
 
-from sqlalchemy import select
+from fastapi import BackgroundTasks
+from sqlalchemy import Table, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import mailer
 from app.config import get_settings
 from app.models import (
     Case,
@@ -20,6 +22,18 @@ from app.models import (
 log = logging.getLogger("notify")
 
 
+def queue(background: BackgroundTasks, to: list[str], message: tuple[str, str]) -> bool:
+    """ส่งอีเมลหลังตอบคำขอไปแล้ว ผู้ใช้จะได้ไม่ต้องรอ SMTP
+
+    คืน False เมื่อไม่มีผู้รับเลย ให้คนเรียกเขียน log บอกเหตุผลที่ไม่ได้ส่ง
+    """
+    if not to:
+        return False
+    subject, body = message
+    background.add_task(mailer.send, to, subject, body)
+    return True
+
+
 def explain_skip(event: str, task: Task, candidates: int, with_email: int) -> None:
     """บอกใน log ว่าทำไมเหตุการณ์นี้ถึงไม่มีอีเมลออก
 
@@ -33,23 +47,33 @@ def explain_skip(event: str, task: Task, candidates: int, with_email: int) -> No
     log.info("%s #%s — ไม่ส่งแจ้งเตือน: %s", event, task.number, why)
 
 
-async def project_emails(
-    session: AsyncSession, project_id: str, exclude: set[str]
+async def _member_emails(
+    session: AsyncSession, link: Table, owner_column: str, owner_id: str, exclude: set[str]
 ) -> list[str]:
-    """อีเมลของสมาชิกในโปรเจค ยกเว้นคนที่ระบุ
+    """อีเมลของสมาชิกทุกคนในโปรเจคหรือที่เก็บ ยกเว้นคนที่ระบุ
 
     คนที่ไม่ได้กรอกอีเมลไว้จะไม่ถูกนับ — ถือว่าเลือกไม่รับแจ้งเตือน
     """
     rows = await session.scalars(
         select(Member.email)
-        .join(project_members, project_members.c.member_id == Member.id)
+        .join(link, link.c.member_id == Member.id)
         .where(
-            project_members.c.project_id == project_id,
+            link.c[owner_column] == owner_id,
             Member.email.is_not(None),
             Member.id.not_in(exclude) if exclude else Member.id.is_not(None),
         )
     )
     return [e for e in rows if e]
+
+
+async def project_emails(
+    session: AsyncSession, project_id: str, exclude: set[str]
+) -> list[str]:
+    return await _member_emails(session, project_members, "project_id", project_id, exclude)
+
+
+async def case_emails(session: AsyncSession, case_id: str, exclude: set[str]) -> list[str]:
+    return await _member_emails(session, case_members, "case_id", case_id, exclude)
 
 
 async def emails_of(session: AsyncSession, member_ids: set[str | None]) -> list[str]:
@@ -63,29 +87,9 @@ async def emails_of(session: AsyncSession, member_ids: set[str | None]) -> list[
     return [e for e in rows if e]
 
 
-async def case_emails(session: AsyncSession, case_id: str, exclude: set[str]) -> list[str]:
-    """อีเมลของสมาชิกในเรื่อง ยกเว้นคนที่ระบุ — กติกาเดียวกับ project_emails"""
-    rows = await session.scalars(
-        select(Member.email)
-        .join(case_members, case_members.c.member_id == Member.id)
-        .where(
-            case_members.c.case_id == case_id,
-            Member.email.is_not(None),
-            Member.id.not_in(exclude) if exclude else Member.id.is_not(None),
-        )
-    )
-    return [e for e in rows if e]
-
-
 async def case_manager_emails(session: AsyncSession, case: Case, exclude: set[str]) -> list[str]:
     """อีเมลของเจ้าของ + admin ของที่เก็บ — คำขอเอกสารส่งถึงคนที่ตัดสินใจได้ ไม่รบกวนสมาชิกทั้งหมด"""
-    ids = {case.owner_id, *case.admin_ids} - {None} - exclude
-    if not ids:
-        return []
-    rows = await session.scalars(
-        select(Member.email).where(Member.id.in_(ids), Member.email.is_not(None))
-    )
-    return [e for e in rows if e]
+    return await emails_of(session, {case.owner_id, *case.admin_ids} - exclude)
 
 
 def document_requested(
@@ -180,10 +184,6 @@ def file_added(case: Case, f: CaseFile, who: Member) -> tuple[str, str]:
     return subject, "\n".join(lines) + _document_footer()
 
 
-def _task_key(project: Project, task: Task) -> str:
-    return f"{project.task_prefix}-{task.number:03d}"
-
-
 def _footer(project: Project) -> str:
     url = get_settings().app_url
     return (
@@ -195,7 +195,7 @@ def _footer(project: Project) -> str:
 
 
 def task_created(project: Project, task: Task, author: Member) -> tuple[str, str]:
-    key = _task_key(project, task)
+    key = project.task_key(task)
     subject = f"[{project.name}] งานใหม่ {key} — {task.title}"
 
     lines = [
@@ -217,7 +217,7 @@ def task_created(project: Project, task: Task, author: Member) -> tuple[str, str
 
 def task_overdue(project: Project, task: Task) -> tuple[str, str]:
     """เลยกำหนดส่งแล้วแต่ยังไม่ปิดงาน — แจ้งคนรับงานกับเจ้าของโปรเจค"""
-    key = _task_key(project, task)
+    key = project.task_key(task)
     subject = f"[{project.name}] งานเลยกำหนดส่ง {key} — {task.title}"
 
     body = "\n".join([
@@ -232,7 +232,7 @@ def task_reworked(
     project: Project, task: Task, who: str, reason: str, url: str | None
 ) -> tuple[str, str]:
     """GitHub ตีงานกลับ — การ์ดกลับไปกำลังทำและติดป้าย Rework โดยไม่มีใครกดในเว็บ คนรับงานต้องรู้"""
-    key = _task_key(project, task)
+    key = project.task_key(task)
     subject = f"[{project.name}] งาน {key} ถูกตีกลับ — {task.title}"
     lines = [
         f"{who} {reason} การ์ดกลับไปคอลัมน์ \"กำลังทำ\" และขึ้นป้าย Rework "
@@ -246,7 +246,7 @@ def task_reworked(
 
 
 def task_claimed(project: Project, task: Task, who: Member) -> tuple[str, str]:
-    key = _task_key(project, task)
+    key = project.task_key(task)
     subject = f"[{project.name}] {who.name} รับงาน {key} แล้ว"
 
     body = "\n".join([
