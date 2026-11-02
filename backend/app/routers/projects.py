@@ -48,6 +48,45 @@ def _prefix_from_repo(github_repo: str | None) -> str:
     return initials.upper()[:10] if initials else "TASK"
 
 
+async def _taken_prefixes(
+    session: AsyncSession, github_repo: str | None, exclude_id: str | None = None
+) -> set[str]:
+    """รหัสย่อที่โปรเจคอื่นซึ่งผูก repo เดียวกันใช้อยู่ (ตัวใหญ่) — ไม่ผูก repo ไม่มีอะไรให้ชน"""
+    if not github_repo:
+        return set()
+    query = select(Project.task_prefix).where(Project.github_repo == github_repo)
+    if exclude_id:
+        query = query.where(Project.id != exclude_id)
+    return {p.upper() for p in await session.scalars(query)}
+
+
+def _free_prefix(base: str, taken: set[str]) -> str:
+    """base ถ้ายังไม่มีใครใช้ ไม่งั้นต่อเลขท้ายไปเรื่อย ๆ KST2, KST3 … (ตัดหัวให้ยาวไม่เกิน 10 ตัว)
+
+    repo เดียวกันให้รหัสย่อตั้งต้นเหมือนกันเสมอ โปรเจคที่สองที่ผูก repo เดิมจึงชนทุกครั้งถ้าไม่ต่อเลข
+    """
+    if base.upper() not in taken:
+        return base
+    n = 2
+    while True:
+        suffix = str(n)
+        candidate = base[: 10 - len(suffix)] + suffix
+        if candidate.upper() not in taken:
+            return candidate
+        n += 1
+
+
+async def _commit_prefix(session: AsyncSession) -> None:
+    """commit ที่อาจชน unique index ของรหัสย่อ — สองคนสร้างโปรเจคบน repo เดียวกันพร้อมกัน"""
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(
+            409, "Another project on this repository already uses that task prefix"
+        ) from None
+
+
 async def _get_project(session: AsyncSession, project_id: str, me: Member) -> Project:
     """โปรเจคที่ me เป็นสมาชิกอยู่
 
@@ -103,11 +142,11 @@ async def create_project(
         name=payload.name,
         github_repo=repo,
         owner_id=me.id,
-        task_prefix=_prefix_from_repo(repo),
+        task_prefix=_free_prefix(_prefix_from_repo(repo), await _taken_prefixes(session, repo)),
     )
     project.members.append(me)
     session.add(project)
-    await session.commit()
+    await _commit_prefix(session)
     await session.refresh(project)
     return project_out(project)
 
@@ -124,9 +163,27 @@ async def update_project(
     new_repo = data.get("github_repo")
     if new_repo and new_repo != project.github_repo:
         data["github_repo"] = await require_push_access(me, new_repo)
+    elif "github_repo" in data and not new_repo:
+        # สตริงว่าง = ถอด repo — เก็บเป็น NULL ให้หลุดจาก unique index ของรหัสย่อ
+        data["github_repo"] = None
+
+    # รหัสย่อต้องไม่ซ้ำกับโปรเจคอื่นบน repo ที่จะผูก — ตั้งเองชนให้ปฏิเสธ
+    # ย้ายไป repo ที่มีโปรเจคใช้รหัสเดิมอยู่แล้ว ให้ต่อเลขท้ายเอง จะได้ไม่ต้องย้อนมาแก้
+    repo = data.get("github_repo", project.github_repo)
+    taken = await _taken_prefixes(session, repo, exclude_id=project.id)
+    if data.get("task_prefix"):
+        if data["task_prefix"].upper() in taken:
+            raise HTTPException(
+                409, "Another project on this repository already uses that task prefix"
+            )
+    else:
+        data.pop("task_prefix", None)
+        if repo != project.github_repo:
+            data["task_prefix"] = _free_prefix(project.task_prefix, taken)
+
     for field, value in data.items():
         setattr(project, field, value)
-    await session.commit()
+    await _commit_prefix(session)
     await session.refresh(project)
     return project_out(project)
 
