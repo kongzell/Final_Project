@@ -28,6 +28,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
     select,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -131,13 +132,24 @@ class Member(Base):
 
 class Project(Base):
     __tablename__ = "projects"
+    #: repo เดียวผูกได้หลายโปรเจค แต่รหัสย่อในกลุ่มนั้นห้ามซ้ำ (ไม่สนตัวพิมพ์ เพราะ webhook อ่านเป็นตัวใหญ่)
+    #: ไม่งั้น commit ที่อ้าง KST-001 จะย้ายงานเลข 1 ของทุกโปรเจคพร้อมกัน
+    __table_args__ = (
+        Index(
+            "uq_projects_repo_prefix",
+            "github_repo",
+            text("upper(task_prefix)"),
+            unique=True,
+            postgresql_where=text("github_repo IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(160))
     #: repo บน GitHub ที่โปรเจคนี้ผูกอยู่ เช่น "kongzell/Follow-up"
     github_repo: Mapped[str | None] = mapped_column(String(200), nullable=True)
     #: รหัสย่อที่ใช้นำหน้าเลขงาน เช่น "KST" -> KST-001
-    #: ตั้งจากชื่อ repo ตอนสร้าง แล้วเจ้าของแก้เองได้
+    #: ตั้งจากชื่อ repo ตอนสร้าง ถ้าซ้ำกับโปรเจคอื่นที่ผูก repo เดียวกันจะต่อเลขท้าย เช่น KST2
     task_prefix: Mapped[str] = mapped_column(String(10), default="TASK")
     #: คนที่สร้างโปรเจค — ลบ/เปลี่ยนชื่อโปรเจคได้คนเดียว
     #: null ได้เพื่อไม่ให้โปรเจคหายตามเจ้าของที่ถูกลบ (ON DELETE SET NULL)

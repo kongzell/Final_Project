@@ -163,9 +163,11 @@ async def _suggest_matches(repo: str | None, event_ids: list[str]) -> None:
         if not open_tasks:
             return
 
-        by_number = {t.number: t for t in open_tasks}
+        # repo เดียวผูกหลายโปรเจคได้ และทุกโปรเจคนับเลขงานจาก 1 — เลขงานจริงจึงซ้ำกันข้ามโปรเจค
+        # ส่งลำดับในรายการให้ AI แทน แล้วแปลงกลับเป็นงาน ไม่งั้นข้อเสนอชี้ไปผิดโปรเจคได้
+        by_number = dict(enumerate(open_tasks, start=1))
         candidates = [
-            {"number": t.number, "title": t.title, "category": t.category} for t in open_tasks
+            {"number": n, "title": t.title, "category": t.category} for n, t in by_number.items()
         ]
 
         for event_id in event_ids:
@@ -192,7 +194,7 @@ PR_SENT_FOR_REVIEW = {"opened", "reopened", "synchronize", "ready_for_review"}
 def _target_status(event: str, payload: dict) -> str | None:
     """สถานะปลายทางของการ์ดที่ event นี้อ้างถึง — None = event นี้ไม่ย้ายการ์ด
 
-    push / เปิด PR = ส่งเข้าคิวตรวจ · PR ถูก merge = ผ่านการตรวจ -> ปิดงาน
+    push / เปิด PR = ส่งเข้าคิวตรวจ · PR ถูก merge เข้า branch หลัก = ผ่านการตรวจ -> ปิดงาน
     PR ถูกขอแก้ (Request changes) หรือปิดโดยไม่ merge = ตีกลับ -> กลับไปกำลังทำ + การ์ดแดง
     การ merge เข้า main ทำได้เฉพาะคนที่ ruleset อนุญาต ซึ่งตั้งไว้ให้เป็นเจ้าของ repo
     การปิดงานอัตโนมัติจึงเท่ากับเจ้าของกดรับงานเอง
@@ -201,7 +203,13 @@ def _target_status(event: str, payload: dict) -> str | None:
     if event == "pull_request":
         pr = payload.get("pull_request") or {}
         if action == "closed":
-            return "complete" if pr.get("merged") else "in-progress"
+            if not pr.get("merged"):
+                return "in-progress"
+            # ปิดงานเฉพาะ merge เข้า branch หลัก — ruleset คุมได้แค่ branch นั้น
+            # merge เข้า branch อื่น (เช่น dev) ใคร push ได้ก็กดได้ ถ้านับด้วยสมาชิกจะปิดงานตัวเองได้
+            base = (pr.get("base") or {}).get("ref")
+            default = (payload.get("repository") or {}).get("default_branch")
+            return "complete" if base and base == default else None
         # เฉพาะเหตุการณ์ที่มีโค้ดส่งเข้ามาตรวจจริง — ติด label, แก้ชื่อ, ขอ reviewer ไม่นับ
         # ไม่งั้นการ์ดที่เพิ่งถูกตีกลับจะเด้งกลับไปรอตรวจและป้าย Rework หายทั้งที่ยังไม่ได้แก้อะไร
         # PR แบบ draft ยังไม่พร้อมให้ตรวจ — รอจนกด Ready for review
