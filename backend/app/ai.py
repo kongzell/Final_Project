@@ -316,12 +316,13 @@ async def breakdown(
     )
     parts.append({"text": prompt})
 
+    # ไม่ส่ง temperature — Gemini 3.6 ขึ้นไปไม่ใช้ค่าที่ตั้งเอง และ Google ประกาศว่าจะตอบ 400
+    # ในรุ่นถัดไป ความคงที่ของคำตอบมาจาก prompt กับ responseSchema แทน (match_commit เหมือนกัน)
     payload = {
         "contents": [{"parts": parts}],
         "generationConfig": {
             "responseMimeType": "application/json",
             "responseSchema": RESPONSE_SCHEMA,
-            "temperature": 0.4,
         },
     }
 
@@ -409,8 +410,6 @@ async def match_commit(message: str, tasks: list[dict]) -> dict | None:
         "generationConfig": {
             "responseMimeType": "application/json",
             "responseSchema": MATCH_SCHEMA,
-            # งานนี้ต้องการความแม่น ไม่ต้องการความสร้างสรรค์
-            "temperature": 0.1,
         },
     }
 
