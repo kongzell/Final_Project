@@ -173,6 +173,30 @@ def _file_in(case: Case, file_id: str) -> CaseFile:
     return f
 
 
+def _versions_of(case: Case, f: CaseFile) -> list[CaseFile]:
+    """ทุกฉบับในสายเดียวกับ f — เดินทั้งไปฉบับเก่าและฉบับใหม่ เพราะเริ่มจากฉบับไหนก็ได้"""
+    family = {f.id}
+    size = 0
+    while size != len(family):
+        size = len(family)
+        for x in case.files:
+            if x.id in family and x.replaces_id:
+                family.add(x.replaces_id)
+            elif x.replaces_id in family:
+                family.add(x.id)
+    return [x for x in case.files if x.id in family]
+
+
+def _drop_stale_links(case: Case, f: CaseFile, project_id: str | None) -> None:
+    """ถอดฉบับอื่นในสายที่ผูกโปรเจคไม่ตรงกับ project_id — ถอดอย่างเดียว ไม่ผูกเพิ่มให้
+
+    ไม่งั้นถอดใบล่าสุดออกจากโปรเจคแล้ว ฉบับก่อนหน้าจะโผล่ในรายการของโปรเจคแทน และทีมยังเปิดได้
+    """
+    for x in _versions_of(case, f):
+        if x.project_id != project_id:
+            x.project_id = None
+
+
 # ---------- ที่เก็บ ----------
 
 
@@ -327,6 +351,7 @@ async def add_file(
         new_file.agency = new_file.agency or prev.agency
         new_file.deadline = new_file.deadline or prev.deadline
         new_file.project_id = new_file.project_id or prev.project_id
+        _drop_stale_links(case, prev, new_file.project_id)
 
     case.files.append(new_file)
     await session.commit()
@@ -363,6 +388,7 @@ async def update_file(
         if new_id is not None and new_id != f.project_id:
             await _linkable_project(session, new_id, me)
         f.project_id = new_id
+        _drop_stale_links(case, f, new_id)
 
     was_open = f.status in DOC_OPEN_STATUSES
     for field, value in data.items():
