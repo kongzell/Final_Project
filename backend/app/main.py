@@ -9,6 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.datastructures import MutableHeaders
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app import overdue
 from app.config import get_settings
@@ -41,6 +43,48 @@ async def lifespan(_app: FastAPI):
         task.cancel()
 
 
+# ---------- Security Headers ----------
+
+#: เคยเข้าผ่าน HTTPS แล้ว เบราว์เซอร์จะไม่ส่งคำขอแบบ HTTP มาอีก 1 ปี — กันการดักคำขอแรกก่อน redirect
+HSTS = "max-age=31536000"
+
+#: ใส่เฉพาะหน้าเว็บ (ดู SpaFiles) ถ้ามีสคริปต์แทรกเข้ามาได้ เบราว์เซอร์จะไม่ยอมรัน
+#: สไตล์ต้องผ่อน 'unsafe-inline' ไว้เผื่อโค้ดที่ตั้งสไตล์ในหน้า รูปโปรไฟล์มาจาก GitHub
+CSP = "; ".join(
+    [
+        "default-src 'self'",
+        "img-src 'self' data: https://avatars.githubusercontent.com",
+        "style-src 'self' 'unsafe-inline'",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "frame-ancestors 'none'",
+    ]
+)
+
+
+class HstsMiddleware:
+    """เติม HSTS ให้ทุกคำตอบที่มาทาง HTTPS
+
+    เขียนแบบ ASGI ตรง ๆ เติมแค่ header ตอนเริ่มตอบ ไม่ยุ่งกับ body หรือ BackgroundTasks ของ webhook
+    Render ปิด HTTPS ที่ proxy ค่า scheme จึงมาจาก X-Forwarded-Proto (ดู CMD ใน Dockerfile)
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or scope.get("scheme") != "https":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_hsts(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                MutableHeaders(scope=message)["Strict-Transport-Security"] = HSTS
+            await send(message)
+
+        await self.app(scope, receive, send_with_hsts)
+
+
 # docs วางไว้ใต้ /api เพื่อให้ผ่าน proxy ของ vite (dev) และ nginx (prod) ได้เหมือน endpoint อื่น
 # เปิดเฉพาะตอนพัฒนาบนเครื่อง — บนเว็บจริงไม่ต้องแจกแผนที่ endpoint ทั้งหมดให้คนนอก
 API_DOCS = not settings.render
@@ -59,6 +103,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(HstsMiddleware)
 
 app.include_router(ai.router)
 app.include_router(auth.router)
@@ -134,6 +179,8 @@ class SpaFiles(StaticFiles):
         served = str(getattr(response, "path", ""))
         if served.endswith("index.html"):
             response.headers["Cache-Control"] = "no-cache"
+            # ใส่ตรงนี้ที่เดียว ไม่ให้กระทบ /api/docs ที่โหลดสคริปต์จาก CDN และการเปิดไฟล์ PDF
+            response.headers["Content-Security-Policy"] = CSP
         elif path.startswith("assets/"):
             response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         return response
