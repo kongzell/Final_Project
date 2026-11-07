@@ -356,7 +356,8 @@ class CaseFileUpdate(ApiModel):
 # ---------- AI ----------
 
 #: วิธีแตกงานที่ AI เลือกใช้ — vertical = ตามฟีเจอร์ (agile), layered = ตามชั้น (waterfall)
-SliceStyle = Literal["vertical", "layered"]
+#: lifecycle = ตามขั้นตอนการพัฒนา ตั้งแต่เก็บ requirement ถึง deploy (ค่าเริ่มต้นของงานจากเอกสาร)
+SliceStyle = Literal["vertical", "layered", "lifecycle"]
 
 
 class BreakdownRequest(ApiModel):

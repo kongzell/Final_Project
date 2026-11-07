@@ -24,7 +24,7 @@ export type BreakdownResult = {
   summary: string
   subtasks: SubtaskSuggestion[]
   /** วิธีที่ AI ใช้แตกจริง — ตอนขอ auto จะได้รู้ว่ามันเลือกอะไร */
-  style: "vertical" | "layered"
+  style: "vertical" | "layered" | "lifecycle"
   /** เหตุผลหนึ่งบรรทัดว่าทำไมแบบนั้นถึงเหมาะกับคำขอนี้ */
   styleReason: string
   /** true = ยังไม่ได้ตั้ง GEMINI_API_KEY กำลังใช้ข้อมูลตัวอย่าง */

@@ -10,6 +10,12 @@ import {
 import "./Modal.css"
 import "./Ai.css"
 
+const STYLE_LABELS: Record<BreakdownResult["style"], string> = {
+  vertical: "by feature",
+  layered: "by layer",
+  lifecycle: "by project stage",
+}
+
 /** แตกจากไฟล์ในหน้า Documents แทนพิมพ์เอง — ชื่อเรื่องเป็นหัวข้อ เนื้อหาอยู่ในไฟล์ */
 export type BreakdownSource = {
   caseId: string
@@ -182,7 +188,7 @@ export function AiBreakdownModal({ projectName, source, onClose, onAdd }: Props)
             <p className="ai-chose">
               <IconSparkle size={13} />
               <span>
-                AI split this <strong>{result.style === "layered" ? "by layer" : "by feature"}</strong>
+                AI split this <strong>{STYLE_LABELS[result.style]}</strong>
                 {result.styleReason && <> — {result.styleReason}</>}
               </span>
             </p>

@@ -28,7 +28,7 @@ RESPONSE_SCHEMA = {
     "type": "object",
     "properties": {
         "summary": {"type": "string"},
-        "style": {"type": "string", "enum": ["vertical", "layered"]},
+        "style": {"type": "string", "enum": ["vertical", "layered", "lifecycle"]},
         "styleReason": {"type": "string"},
         "subtasks": {
             "type": "array",
@@ -91,7 +91,7 @@ Break it into subtasks that can actually be picked up and checked off:
     subtask under the milestone it belongs to. Turn relative durations like "within 30 days"
     into a date counted from today. Leave dueDate as an empty string when nothing in the
     request says when it is due; never invent a date
-10. style is the way you actually split the work: "vertical" or "layered".
+10. style is the way you actually split the work: {style_options}.
     styleReason is one line, in the same language as the request, on why that way fits
     THIS request — write it even when the way was given to you
 
@@ -159,6 +159,67 @@ SLICE_RULE = (
 
 DEPENDS_RULE = (
     """Follow the guidance that matches the style you chose.
+   If vertical: """
+    + VERTICAL_DEPENDS
+    + """
+   If layered: """
+    + LAYERED_DEPENDS
+)
+
+# ---------- งานที่สร้างจากเอกสาร ----------
+#
+# เอกสารอย่าง TOR บอกว่าระบบต้องทำอะไร แต่ทีมยังต้องเก็บ requirement ออกแบบ ทดสอบ และส่งมอบด้วย
+# การ์ดจึงต้องครบทุกขั้น ไม่ใช่มีแต่งานเขียนระบบ ผู้ใช้ยังสั่งแบบอื่นผ่าน context ได้เหมือนเดิม
+
+#: ตัดตามขั้นตอนการพัฒนา — ในขั้นพัฒนายังแบ่งตามความสามารถของระบบ ไม่แบ่งตามชั้นเทคโนโลยี
+LIFECYCLE_SLICE = """Slice the work by DEVELOPMENT STAGE, in this order, so the cards cover the
+   whole project and not only the coding:
+   a. Requirements (category Other): gather and confirm the requirements with the people who
+      issued the document, including anything it leaves unclear
+   b. Design (category Design): the design work this system needs, such as the database,
+      the screens and the API
+   c. Development (category Frontend, Backend or Database): one subtask per capability in the
+      document's scope, not one per technical layer
+   d. Testing (category Testing): test the system against the document's acceptance conditions
+   e. Deployment and handover (category DevOps, or Other for non-technical work): deploy the
+      system and hand over the deliverables the document lists, such as manuals or training
+   Always include stages a, b, d and e, even when the document does not spell them out, with
+   one or two subtasks each. Never merge two stages into one subtask, even when the document
+   delivers them together. The count in rule 8 is only a rough guide for stage c: never bundle
+   several capabilities into one subtask to reach it.
+   Start each title with its action so the stage is obvious, e.g. "เก็บ requirement กับผู้ว่าจ้าง",
+   "ออกแบบฐานข้อมูล", "พัฒนาการจองห้องประชุม", "ทดสอบตามเกณฑ์ตรวจรับ", "Deploy ระบบ".
+   For a stage that builds nothing, the description says what to do and what counts as done"""
+
+#: แต่ละขั้นต่อจากขั้นก่อน แต่งานพัฒนาคนละความสามารถทำขนานกันได้
+LIFECYCLE_DEPENDS = """Stages build on each other: design depends on requirements, each
+   development subtask depends on the design subtasks it uses, testing depends on the development
+   subtasks it tests, and deployment depends on testing. Development subtasks for different
+   capabilities are independent unless one truly needs the other — do not chain them"""
+
+DOCUMENT_SLICE_RULE = (
+    """If the extra context from the user asks for a particular way — "by feature", "by layer",
+   "agile", "waterfall", "in build order", or words to that effect, in any language — follow it
+   and report it in `style`: "vertical" for by feature, "layered" for by layer. Otherwise split
+   by stage and report "lifecycle".
+
+   If by stage: """
+    + LIFECYCLE_SLICE
+    + """
+
+   If vertical: """
+    + VERTICAL_SLICE
+    + """
+
+   If layered: """
+    + LAYERED_SLICE
+)
+
+DOCUMENT_DEPENDS_RULE = (
+    """Follow the guidance that matches the style you chose.
+   If lifecycle: """
+    + LIFECYCLE_DEPENDS
+    + """
    If vertical: """
     + VERTICAL_DEPENDS
     + """
@@ -289,7 +350,11 @@ async def breakdown(
 
     attachment_note = ""
     parts: list[dict] = []
+    slice_rule, depends_rule = SLICE_RULE, DEPENDS_RULE
+    style_options = '"vertical" or "layered"'
     if attachment is not None:
+        slice_rule, depends_rule = DOCUMENT_SLICE_RULE, DOCUMENT_DEPENDS_RULE
+        style_options = '"lifecycle", "vertical" or "layered"'
         filename, content_type, data = attachment
         if content_type not in READABLE_TYPES:
             raise HTTPException(
@@ -299,7 +364,7 @@ async def breakdown(
             f'The attached document "{filename}" IS the request. Read it fully and break down '
             "the work it describes — scope of work, deliverables, acceptance conditions and "
             "any schedule or milestones in it. The request title above is only the name of "
-            "the matter; do not invent work that the document does not ask for.\n"
+            "the matter; do not invent features or deliverables the document does not ask for.\n"
         )
         encoded = base64.b64encode(data).decode()
         parts.append({"inline_data": {"mime_type": content_type, "data": encoded}})
@@ -311,8 +376,9 @@ async def breakdown(
         context=f"Extra context from the user: {context}" if context.strip() else "",
         categories=", ".join(CATEGORIES),
         count=count,
-        slice_rule=SLICE_RULE,
-        depends_rule=DEPENDS_RULE,
+        slice_rule=slice_rule,
+        depends_rule=depends_rule,
+        style_options=style_options,
     )
     parts.append({"text": prompt})
 
