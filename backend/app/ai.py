@@ -451,7 +451,10 @@ Say which task this commit most likely refers to:
    high   = the message clearly talks about the same thing as the task title
    medium = related, but not word for word
    low    = plausible, but you are not sure
-4. reason explains your choice in one line (or why nothing matched). Answer in English."""
+4. reason explains your choice in one line (or why nothing matched). Refer to the task by
+   its title, never by its number — the number is only its position in this list, not the
+   task code the user sees on the card, so "task 4" would point them at the wrong card.
+   Answer in English."""
 
 
 async def match_commit(message: str, tasks: list[dict]) -> dict | None:
