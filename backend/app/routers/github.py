@@ -14,6 +14,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import ai, notify
+from app.attachments import archive_attachments
 from app.auth import require_member
 from app.config import get_settings
 from app.db import SessionLocal, get_session
@@ -108,6 +109,8 @@ async def _advance_referenced_tasks(
                 # ตีกลับงานที่คนทำถูกเอาออกไปแล้ว — จอดไว้รอเริ่มแทนการค้างกำลังทำโดยไม่มีใครทำ
                 if task.status == "in-progress" and not task.assignees:
                     apply_status_change(task, "todo")
+                # merge เข้า branch หลัก = ผ่านการตรวจ — ไฟล์แนบของการ์ดเข้าที่เก็บกลางเหมือนกด Done บนเว็บ
+                await archive_attachments(session, project, task)
                 moved.append((project, task))
 
     await session.commit()

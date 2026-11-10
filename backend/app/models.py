@@ -156,6 +156,12 @@ class Project(Base):
     owner_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("members.id", ondelete="SET NULL"), nullable=True
     )
+    #: ที่เก็บเอกสารประจำโปรเจค — ไฟล์ที่แนบกับการ์ดจะถูกเก็บลงที่นี่เมื่องานผ่านการตรวจ (Done)
+    #: ต้องตั้งไว้ล่วงหน้า เพราะงานที่ปิดจากการ merge PR บน GitHub ไม่มีใครอยู่เลือกให้ตอนนั้น
+    #: SET NULL เมื่อที่เก็บถูกลบ — ไฟล์ของงานที่ปิดหลังจากนั้นจะรออยู่ที่การ์ดจนกว่าจะตั้งใหม่
+    document_case_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("cases.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     members: Mapped[list[Member]] = relationship(secondary=project_members, lazy="selectin")
@@ -267,9 +273,49 @@ class Task(Base):
 
     project: Mapped[Project] = relationship(back_populates="tasks")
     assignees: Mapped[list[Member]] = relationship(secondary=task_assignees, lazy="selectin")
+    #: ไฟล์ผลงานที่แนบกับการ์ด — ตัวไฟล์ (data) ถูก defer ไว้ ดึงบอร์ดจึงได้แค่ชื่อกับขนาด
+    attachments: Mapped[list[TaskAttachment]] = relationship(
+        lazy="selectin",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="TaskAttachment.uploaded_at",
+    )
 
     def is_assigned(self, member_id: str | None) -> bool:
         return any(m.id == member_id for m in self.assignees)
+
+
+class TaskAttachment(Base):
+    """ไฟล์ผลงานที่ผู้รับงานแนบกับการ์ด
+
+    ระหว่างรอตรวจไฟล์อยู่ที่การ์ดเท่านั้น ยังไม่เข้าที่เก็บเอกสารกลาง เพราะยังไม่ผ่านการตรวจ
+    เมื่องานผ่านการตรวจ (Done) ระบบคัดลอกไฟล์ลงที่เก็บประจำโปรเจคเป็น case_files ใบใหม่
+    แล้วล้างตัวไฟล์ที่นี่ทิ้ง เหลือ file_id ชี้ไปฉบับในที่เก็บ จะได้ไม่เก็บไฟล์เดียวกันสองที่
+    """
+
+    __tablename__ = "task_attachments"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    task_id: Mapped[str] = mapped_column(
+        ForeignKey("tasks.id", ondelete="CASCADE"), index=True
+    )
+    filename: Mapped[str] = mapped_column(Text)
+    content_type: Mapped[str] = mapped_column(String(120))
+    size: Mapped[int] = mapped_column(Integer)
+    #: ตัวไฟล์ระหว่างรอตรวจ — ว่างหลังเก็บลงที่เก็บกลางแล้ว · deferred = ไม่โหลดจนกว่าจะขอ
+    data: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
+    uploaded_by: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("members.id", ondelete="SET NULL"), nullable=True
+    )
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    #: เวลาที่เก็บลงที่เก็บกลาง — null = ยังรอตรวจอยู่ที่การ์ด
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    #: เอกสารในที่เก็บกลางที่ไฟล์นี้ถูกเก็บไป — SET NULL ถ้าเอกสารนั้นถูกลบภายหลัง
+    file_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("case_files.id", ondelete="SET NULL"), nullable=True
+    )
 
 
 async def end_of_column(session: AsyncSession, project_id: str, status: str) -> float:

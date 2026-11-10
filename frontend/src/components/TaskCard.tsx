@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react"
+import { taskAttachmentUrl } from "../api"
 import type { Member, PriorityId, StatusId, Task } from "../types"
 import {
-  CATEGORIES, categoryColor, codeLink, COMPLEXITIES, formatDayMonth, formatDuration, formatEstimate, isOverdue,
-  PRIORITIES, STATUSES, taskKey,
+  CATEGORIES, categoryColor, codeLink, COMPLEXITIES, formatBytes, formatDayMonth, formatDuration, formatEstimate,
+  isOverdue, PRIORITIES, STATUSES, taskKey,
 } from "../types"
+import { ACCEPT } from "./AddDocumentModal"
 import { Avatar } from "./Avatar"
 import { TaskComments } from "./TaskComments"
 import { Menu, MenuItem, MenuLabel } from "./Menu"
@@ -47,6 +49,10 @@ type Props = {
   onSetDue: (date: string | null) => void
   onSetCategory: (category: string | null) => void
   onSetDescription: (description: string | null) => void
+  /** โปรเจคตั้งที่เก็บเอกสารประจำไว้แล้วหรือยัง — ยังไม่ตั้ง ไฟล์ของงานที่ปิดแล้วจะรออยู่ที่การ์ด */
+  hasDocumentSpace: boolean
+  onUploadAttachments: (files: File[]) => void
+  onRemoveAttachment: (attachmentId: string) => void
   onDelete: () => void
   onAddMember: () => void
 }
@@ -56,8 +62,21 @@ export function TaskCard({
   expanded,
   canClaim, onClaim, onOpen,
   onToggleSubtaskAssignee, onSetSubtaskStatus, onChangeStatus, onToggleAssignee,
-  onSetPriority, onSetDue, onSetCategory, onSetDescription, onDelete, onAddMember,
+  onSetPriority, onSetDue, onSetCategory, onSetDescription,
+  hasDocumentSpace, onUploadAttachments, onRemoveAttachment,
+  onDelete, onAddMember,
 }: Props) {
+  const fileInput = useRef<HTMLInputElement>(null)
+  const isAssignee = currentMemberId !== null && task.assigneeIds.includes(currentMemberId)
+  //: แนบไฟล์ได้เฉพาะคนที่รับงาน กับเจ้าของ/admin — กติกาเดียวกับฝั่ง API
+  const canAttach = (canManage || isAssignee) && task.status !== "complete"
+  const pendingFiles = task.attachments.filter((a) => a.archivedAt === null).length
+  //: ปุ่มส่งงานขึ้นเมื่อมีไฟล์รอส่ง — ต้องมีคนถืองาน เพราะการ์ดรอตรวจโดยไม่มีคนทำ API ไม่ยอม
+  const canSubmit =
+    pendingFiles > 0 &&
+    (task.status === "todo" || task.status === "in-progress") &&
+    task.assigneeIds.length > 0 &&
+    (isAssignee || canManage)
   const [editingDesc, setEditingDesc] = useState(false)
   const [descDraft, setDescDraft] = useState("")
 
@@ -243,6 +262,16 @@ export function TaskCard({
         >
           <IconFile size={12} /> from {sourceFile.name}
         </a>
+      )}
+
+      {task.attachments.length > 0 && (
+        <span
+          className="card-source card-attach"
+          title={pendingFiles > 0 ? "Files waiting for review on this card" : "Files stored in Documents"}
+        >
+          <IconFile size={12} /> {task.attachments.length} file{task.attachments.length === 1 ? "" : "s"}
+          {pendingFiles > 0 ? " · waiting" : " · in Documents"}
+        </span>
       )}
 
       {code && (
@@ -447,6 +476,95 @@ export function TaskCard({
               </p>
             )}
           </div>
+
+          {(task.attachments.length > 0 || canAttach) && (
+            <div className="cd-block">
+              <span className="cd-label">
+                Attachments{task.attachments.length > 0 ? ` ${task.attachments.length}` : ""}
+              </span>
+
+              {task.attachments.length > 0 ? (
+                <ul className="cd-atts">
+                  {task.attachments.map((a) => {
+                    // เก็บลงที่เก็บกลางแล้ว แต่เอกสารนั้นถูกลบทีหลัง — เปิดไม่ได้แล้ว
+                    const removed = a.archivedAt !== null && a.fileId === null
+                    const state = a.archivedAt === null
+                      ? "Waiting for review"
+                      : removed ? "Removed from Documents" : "In Documents"
+                    return (
+                      <li key={a.id} className="cd-att">
+                        {removed ? (
+                          <span className="cd-att-name is-gone"><IconFile size={12} /> {a.filename}</span>
+                        ) : (
+                          <a
+                            className="cd-att-name"
+                            href={taskAttachmentUrl(task.id, a.id)}
+                            target="_blank"
+                            rel="noreferrer"
+                            title={`Open ${a.filename}`}
+                          >
+                            <IconFile size={12} /> {a.filename}
+                          </a>
+                        )}
+                        <span className={`cd-att-meta${a.archivedAt ? " is-stored" : ""}`}>
+                          {formatBytes(a.size)} · {state}
+                        </span>
+                        {a.archivedAt === null && (canManage || a.uploadedBy === currentMemberId) && (
+                          <button
+                            type="button"
+                            className="cd-att-del"
+                            title="Remove this file"
+                            aria-label={`Remove ${a.filename}`}
+                            onClick={() => onRemoveAttachment(a.id)}
+                          >
+                            <IconTrash size={12} />
+                          </button>
+                        )}
+                      </li>
+                    )
+                  })}
+                </ul>
+              ) : (
+                <p className="cd-desc is-empty">No files yet — attach your work to send it for review</p>
+              )}
+
+              {pendingFiles > 0 && (
+                <p className="cd-att-hint">
+                  {task.status === "review"
+                    ? "Waiting for the lead's review — the files move to Documents when the task is done."
+                    : task.status === "complete" && !hasDocumentSpace
+                      ? "Approved — the files move to Documents once the project has a document space."
+                      : "The files stay on this card until the task is approved."}
+                </p>
+              )}
+
+              {canAttach && (
+                <div className="cd-att-actions">
+                  <button type="button" className="cd-att-add" onClick={() => fileInput.current?.click()}>
+                    <IconPlus size={12} /> Attach files
+                  </button>
+                  {canSubmit && (
+                    <button type="button" className="tc-send" onClick={() => onChangeStatus("review")}>
+                      Submit for review
+                    </button>
+                  )}
+                  <input
+                    ref={fileInput}
+                    type="file"
+                    multiple
+                    hidden
+                    accept={ACCEPT}
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files ?? [])
+                      if (files.length > 0) onUploadAttachments(files)
+                      // ล้างค่า ไม่งั้นเลือกไฟล์ชื่อเดิมซ้ำแล้ว onChange ไม่ทำงาน
+                      e.target.value = ""
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
 
           <TaskComments
             taskId={task.id}

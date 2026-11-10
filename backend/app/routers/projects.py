@@ -7,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import notify
+from app.attachments import archive_backlog
 from app.auth import require_member
 from app.db import get_session
 from app.models import (
@@ -17,6 +18,7 @@ from app.models import (
     Project,
     Task,
     apply_status_change,
+    case_members,
     end_of_column,
     project_members,
     project_removals,
@@ -181,8 +183,22 @@ async def update_project(
         if repo != project.github_repo:
             data["task_prefix"] = _free_prefix(project.task_prefix, taken)
 
+    # ที่เก็บประจำโปรเจค — คนตั้งต้องเป็นสมาชิกของที่เก็บนั้น ไม่งั้นจะเอาไฟล์ไปฝากที่เก็บของทีมอื่นได้
+    if data.get("document_case_id"):
+        in_case = await session.scalar(
+            select(case_members.c.case_id).where(
+                case_members.c.case_id == data["document_case_id"],
+                case_members.c.member_id == me.id,
+            )
+        )
+        if in_case is None:
+            raise HTTPException(404, "Document space not found")
+
     for field, value in data.items():
         setattr(project, field, value)
+    # งานที่ปิดไปตอนยังไม่ได้ตั้งที่เก็บ ไฟล์ยังรออยู่ที่การ์ด — ตั้งแล้วเก็บให้ทันที
+    if data.get("document_case_id"):
+        await archive_backlog(session, project)
     await _commit_prefix(session)
     await session.refresh(project)
     return project_out(project)

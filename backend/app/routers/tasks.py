@@ -1,19 +1,25 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from urllib.parse import quote
+
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Response, UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import notify
+from app.attachments import archive_attachments
 from app.auth import require_member
 from app.db import get_session
 from app.models import (
+    CaseFile,
     Member,
     Project,
     Task,
+    TaskAttachment,
     TaskComment,
     apply_status_change,
     end_of_column,
     project_members,
 )
+from app.routers.cases import read_upload
 from app.schemas import CommentCreate, CommentOut, TaskOut, TaskUpdate
 from app.serialize import task_out
 
@@ -126,6 +132,10 @@ async def update_task(
     if moving:
         await _park_if_unclaimed(session, task)
 
+    # ปิดงาน = ผ่านการตรวจ — ไฟล์ผลงานที่แนบไว้ถึงตอนนี้เข้าที่เก็บเอกสารประจำโปรเจค
+    if moving and task.status == "complete":
+        await archive_attachments(session, project, task)
+
     await session.commit()
     await session.refresh(task)
     return task_out(task)
@@ -208,6 +218,127 @@ async def unassign(
     await session.commit()
     await session.refresh(task)
     return task_out(task)
+
+
+# ---------- ไฟล์ผลงานที่แนบกับการ์ด ----------
+
+#: กันกดแนบทีเดียวหลายสิบไฟล์ — ไฟล์เก็บในฐานข้อมูล แต่ละไฟล์จำกัดขนาดไว้แล้วที่ read_upload
+MAX_FILES_PER_UPLOAD = 10
+
+
+def _attachment_in(task: Task, attachment_id: str) -> TaskAttachment:
+    att = next((a for a in task.attachments if a.id == attachment_id), None)
+    if att is None:
+        raise HTTPException(404, "Attachment not found")
+    return att
+
+
+@router.post("/{task_id}/attachments", response_model=TaskOut, status_code=201)
+async def upload_attachments(
+    task_id: str,
+    files: list[UploadFile] = File(...),
+    me: Member = Depends(require_member),
+    session: AsyncSession = Depends(get_session),
+) -> TaskOut:
+    """แนบไฟล์ผลงานกับการ์ด ได้ทีละหลายไฟล์ — คนที่รับงานใบนี้ หรือเจ้าของ/admin
+
+    ไฟล์อยู่ที่การ์ดเท่านั้น ยังไม่เข้าที่เก็บเอกสารกลาง จนกว่างานจะผ่านการตรวจ (Done)
+    งานที่ปิดแล้วแนบเพิ่มไม่ได้ เพราะผ่านการตรวจไปแล้ว ต้องเปิดงานใหม่ก่อน
+    """
+    task, project = await _task_with_project(session, task_id, me)
+    if not task.is_assigned(me.id) and not project.can_manage(me.id):
+        raise HTTPException(
+            403, "Only the people on this task and the project owner can attach files"
+        )
+    if task.status == "complete":
+        raise HTTPException(400, "This task is already done — reopen it to attach more files")
+    if len(files) > MAX_FILES_PER_UPLOAD:
+        raise HTTPException(400, f"Attach at most {MAX_FILES_PER_UPLOAD} files at a time")
+
+    # อ่านและตรวจครบทุกไฟล์ก่อนบันทึก — ไฟล์หนึ่งไม่ผ่าน จะได้ไม่มีไฟล์ครึ่ง ๆ กลาง ๆ ค้างอยู่
+    uploads = [await read_upload(f) for f in files]
+    for data, content_type, filename in uploads:
+        task.attachments.append(
+            TaskAttachment(
+                filename=filename,
+                content_type=content_type,
+                size=len(data),
+                data=data,
+                uploaded_by=me.id,
+            )
+        )
+    await session.commit()
+    await session.refresh(task)
+    return task_out(task)
+
+
+@router.delete("/{task_id}/attachments/{attachment_id}", response_model=TaskOut)
+async def delete_attachment(
+    task_id: str,
+    attachment_id: str,
+    me: Member = Depends(require_member),
+    session: AsyncSession = Depends(get_session),
+) -> TaskOut:
+    """ลบไฟล์ที่ยังรอตรวจ — คนที่แนบเอง หรือเจ้าของ/admin
+
+    ไฟล์ที่เข้าที่เก็บกลางแล้วลบจากการ์ดไม่ได้ ต้องไปจัดการที่หน้า Documents
+    """
+    task, project = await _task_with_project(session, task_id, me)
+    att = _attachment_in(task, attachment_id)
+    if att.archived_at is not None:
+        raise HTTPException(400, "This file is already stored in Documents")
+    if att.uploaded_by != me.id and not project.can_manage(me.id):
+        raise HTTPException(403, "You can only remove files you attached")
+
+    task.attachments.remove(att)
+    await session.commit()
+    await session.refresh(task)
+    return task_out(task)
+
+
+@router.get("/{task_id}/attachments/{attachment_id}")
+async def download_attachment(
+    task_id: str,
+    attachment_id: str,
+    me: Member = Depends(require_member),
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    """เปิดไฟล์ผลงาน — ทุกคนในโปรเจคเปิดได้ หัวหน้าต้องเปิดดูตอนตรวจงาน
+
+    ไฟล์ที่เข้าที่เก็บกลางแล้วดึงจากฉบับในที่เก็บ เพราะตัวไฟล์บนการ์ดถูกล้างไปแล้ว
+    """
+    task, _ = await _task_with_project(session, task_id, me)
+    att = _attachment_in(task, attachment_id)
+
+    if att.archived_at is None:
+        data = await session.scalar(
+            select(TaskAttachment.data).where(TaskAttachment.id == att.id)
+        )
+        filename, content_type = att.filename, att.content_type
+    else:
+        row = None
+        if att.file_id is not None:
+            row = (
+                await session.execute(
+                    select(CaseFile.data, CaseFile.filename, CaseFile.content_type).where(
+                        CaseFile.id == att.file_id
+                    )
+                )
+            ).first()
+        if row is None:
+            raise HTTPException(404, "This file was removed from Documents")
+        data, filename, content_type = row
+
+    return Response(
+        content=data,
+        media_type=content_type,
+        headers={
+            "Content-Disposition": f"inline; filename*=UTF-8''{quote(filename)}",
+            "Cache-Control": "private, max-age=0",
+            # ชนิดไฟล์มาจากเบราว์เซอร์ของคนอัปโหลด ปลอมได้ — ห้ามเบราว์เซอร์เดาเอง
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 # ---------- คอมเมนต์ใต้การ์ด ----------

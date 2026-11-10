@@ -1,5 +1,12 @@
 from app.models import Case, CaseFile, DocumentRequest, Project, Task
-from app.schemas import CaseFileOut, CaseOut, DocumentRequestOut, ProjectOut, TaskOut
+from app.schemas import (
+    CaseFileOut,
+    CaseOut,
+    DocumentRequestOut,
+    ProjectOut,
+    TaskAttachmentOut,
+    TaskOut,
+)
 
 
 def _actual_hours(task: Task) -> float | None:
@@ -32,6 +39,19 @@ def task_out(task: Task) -> TaskOut:
         actual_hours=_actual_hours(task),
         depends_on=task.depends_on or [],
         source_file_id=task.source_file_id,
+        attachments=[
+            TaskAttachmentOut(
+                id=a.id,
+                filename=a.filename,
+                content_type=a.content_type,
+                size=a.size,
+                uploaded_by=a.uploaded_by,
+                uploaded_at=a.uploaded_at,
+                archived_at=a.archived_at,
+                file_id=a.file_id,
+            )
+            for a in task.attachments
+        ],
         branch=task.branch,
         review_url=task.review_url,
     )
@@ -98,6 +118,7 @@ def project_out(project: Project) -> ProjectOut:
         github_repo=project.github_repo,
         owner_id=project.owner_id,
         task_prefix=project.task_prefix,
+        document_case_id=project.document_case_id,
         member_ids=[m.id for m in project.members],
         admin_ids=sorted(project.admin_ids),
         tasks=[task_out(t) for t in sorted(project.tasks, key=lambda t: t.position)],

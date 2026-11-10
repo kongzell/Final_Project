@@ -633,3 +633,60 @@
   white-space: nowrap;
 }
 .card-source:hover { border-color: var(--accent); color: var(--accent-text); }
+/* ไฟล์ผลงานบนการ์ด — เป็นแค่ป้ายบอก ไม่ใช่ลิงก์ จึงไม่ต้องเปลี่ยนสีตอนชี้ */
+.card-attach:hover { border-color: var(--border-strong); color: var(--text-dim); }
+
+/* ---------- ไฟล์ผลงานในรายละเอียดการ์ด ---------- */
+.cd-atts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.cd-att {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.cd-att-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--text);
+  font-size: 12.5px;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+a.cd-att-name:hover { color: var(--accent-text); }
+.cd-att-name.is-gone { color: var(--text-faint); text-decoration: line-through; }
+.cd-att-meta { grid-column: 1; font-size: 11.5px; color: var(--warning); }
+.cd-att-meta.is-stored { color: var(--status-complete); }
+.cd-att-del {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: inline-flex;
+  padding: 4px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.cd-att-del:hover { background: var(--bg-hover); color: var(--danger); }
+.cd-att-hint { margin: 0; font-size: 12px; line-height: 1.5; color: var(--text-dim); }
+.cd-att-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.cd-att-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 8px;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.cd-att-add:hover { border-color: var(--accent); color: var(--accent-text); }
+.cd-att-actions .tc-send { align-self: auto; }

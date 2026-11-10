@@ -403,5 +403,20 @@ a.rs-doc { text-decoration: none; }
 }
 .rs-doc-open:hover { background: var(--bg-hover); color: var(--accent-text); }
 
+/* ที่เก็บประจำโปรเจค — ไฟล์แนบของการ์ดเข้าที่นี่เมื่องานผ่านการตรวจ */
+.rs-space { display: flex; flex-direction: column; gap: 4px; margin: 2px 0 10px; }
+.rs-space-label { font-size: 11.5px; color: var(--text-faint); }
+.rs-space-value { font-size: 12.5px; color: var(--text-dim); }
+.rs-space-select {
+  width: 100%;
+  font: inherit;
+  font-size: 12.5px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text);
+}
+
 .rs-doc-btns { display: flex; gap: 6px; }
 .rs-doc-btns .rs-add-member { flex: 1; margin-top: 0; white-space: nowrap; }

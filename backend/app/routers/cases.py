@@ -100,8 +100,11 @@ async def _get_owned_case(session: AsyncSession, case_id: str, me: Member) -> Ca
     return case
 
 
-async def _read_upload(upload: UploadFile) -> tuple[bytes, str, str]:
-    """อ่านไฟล์พร้อมตรวจชนิดกับขนาด — ตรวจขนาดจาก bytes จริง ไม่เชื่อ header"""
+async def read_upload(upload: UploadFile) -> tuple[bytes, str, str]:
+    """อ่านไฟล์พร้อมตรวจชนิดกับขนาด — ตรวจขนาดจาก bytes จริง ไม่เชื่อ header
+
+    ไฟล์แนบของการ์ด (routers/tasks.py) ใช้ตัวนี้ด้วย เพราะสุดท้ายไฟล์จะเข้าที่เก็บเอกสารเดียวกัน
+    """
     content_type = (upload.content_type or "application/octet-stream").split(";")[0].strip()
     if content_type not in ALLOWED_TYPES:
         raise HTTPException(415, "Only PDF, Word, Excel, images and plain text are accepted")
@@ -319,7 +322,7 @@ async def add_file(
     เรื่อง/เลขที่/โปรเจค/สถานะจากใบเดิม จะได้ไม่ต้องกรอกซ้ำ
     """
     case = await _get_case(session, case_id, me)
-    data, content_type, filename = await _read_upload(file)
+    data, content_type, filename = await read_upload(file)
     cat = _check_category(category)
 
     new_file = CaseFile(

@@ -2,6 +2,7 @@
 
 import type {
   Case, CaseDirectoryEntry, CaseStatus, FileCategory, Project, ProjectDocuments, PriorityId, StatusId, Task,
+  TaskAttachment,
 } from "./types"
 
 
@@ -258,6 +259,7 @@ type ApiTask = {
   actualHours: number | null
   dependsOn: string[]
   sourceFileId: string | null
+  attachments?: TaskAttachment[]
   branch: string | null
   reviewUrl: string | null
   parentId: string | null
@@ -276,6 +278,7 @@ type ApiTask = {
 type ApiProject = {
   id: string
   name: string
+  documentCaseId?: string | null
   ownerId: string | null
   adminIds: string[]
   taskPrefix: string
@@ -294,6 +297,7 @@ const toTask = (t: ApiTask): Task => ({
   actualHours: t.actualHours,
   dependsOn: t.dependsOn ?? [],
   sourceFileId: t.sourceFileId ?? null,
+  attachments: t.attachments ?? [],
   branch: t.branch,
   reviewUrl: t.reviewUrl,
   parentId: t.parentId,
@@ -312,6 +316,7 @@ const toTask = (t: ApiTask): Task => ({
 const toProject = (p: ApiProject): Project => ({
   id: p.id,
   name: p.name,
+  documentCaseId: p.documentCaseId ?? null,
   ownerId: p.ownerId,
   adminIds: p.adminIds,
   taskPrefix: p.taskPrefix,
@@ -328,7 +333,10 @@ export async function createProject(name: string, githubRepo: string | null): Pr
   return toProject(await json("/api/projects", withJson("POST", { name, githubRepo })))
 }
 
-export async function updateProject(id: string, patch: { name?: string }): Promise<void> {
+export async function updateProject(
+  id: string,
+  patch: { name?: string; documentCaseId?: string | null },
+): Promise<void> {
   await request(`/api/projects/${id}`, withJson("PATCH", patch))
 }
 
@@ -390,6 +398,21 @@ export async function deleteTask(id: string): Promise<void> {
 export async function setAssignee(taskId: string, memberId: string, on: boolean): Promise<void> {
   await request(`/api/tasks/${taskId}/assignees/${memberId}`, { method: on ? "PUT" : "DELETE" })
 }
+
+/** แนบไฟล์ผลงานกับการ์ดได้ทีละหลายไฟล์ — ไฟล์รออยู่ที่การ์ดจนกว่างานจะผ่านการตรวจ */
+export async function uploadTaskAttachments(taskId: string, files: File[]): Promise<void> {
+  const form = new FormData()
+  for (const f of files) form.append("files", f)
+  await request(`/api/tasks/${taskId}/attachments`, { method: "POST", body: form })
+}
+
+export async function deleteTaskAttachment(taskId: string, attachmentId: string): Promise<void> {
+  await request(`/api/tasks/${taskId}/attachments/${attachmentId}`, { method: "DELETE" })
+}
+
+/** ลิงก์เปิดไฟล์แนบ — ไฟล์ที่เก็บลงที่เก็บกลางแล้วก็เปิดจากลิงก์เดิมได้ */
+export const taskAttachmentUrl = (taskId: string, attachmentId: string) =>
+  `/api/tasks/${taskId}/attachments/${attachmentId}`
 
 // ---------- auth ----------
 

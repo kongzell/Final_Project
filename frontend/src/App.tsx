@@ -278,8 +278,26 @@ export default function App() {
     void sync(() => assignAndStart(task, me.id))
   }
 
+  /**
+   * ปิดงานอาจทำให้ไฟล์แนบของการ์ดเข้าที่เก็บเอกสารกลาง — โหลดรายการเอกสารใหม่ด้วย
+   * ไม่งั้นหน้า Documents กับแผงเอกสารของโปรเจคจะยังไม่เห็นไฟล์ที่เพิ่งเข้าไป
+   */
   const patchTask = (taskId: string, patch: Parameters<typeof api.updateTask>[1]) =>
-    void sync(() => api.updateTask(taskId, patch))
+    void sync(() => api.updateTask(taskId, patch)).then(() => {
+      if (patch.status === "complete") void refreshCases()
+    })
+
+  const uploadAttachments = (taskId: string, files: File[]) =>
+    void sync(() => api.uploadTaskAttachments(taskId, files))
+
+  const removeAttachment = (taskId: string, attachmentId: string) =>
+    void sync(() => api.deleteTaskAttachment(taskId, attachmentId))
+
+  /** ตั้งที่เก็บประจำโปรเจค — งานที่ปิดไปแล้วแต่ไฟล์ยังรออยู่จะถูกเก็บทันที จึงโหลดเอกสารใหม่ด้วย */
+  const setDocumentSpace = (caseId: string | null) => {
+    if (!project) return
+    void sync(() => api.updateProject(project.id, { documentCaseId: caseId })).then(() => refreshCases())
+  }
 
   const addExistingMember = (memberId: string) => {
     if (!project) return
@@ -521,6 +539,8 @@ export default function App() {
             onSetDue={(taskId, dueDate) => patchTask(taskId, { dueDate })}
             onSetCategory={(taskId, category) => patchTask(taskId, { category })}
             onSetDescription={(taskId, description) => patchTask(taskId, { description })}
+            onUploadAttachments={uploadAttachments}
+            onRemoveAttachment={removeAttachment}
             onDeleteTask={(id) => {
               deleteTask(id)
               if (id === selectedTaskId) setSelectedTaskId(null)
@@ -571,6 +591,8 @@ export default function App() {
           onAddDocument={() => setBoardDocOpen(true)}
           onRequestDocument={() => setBoardReqOpen(true)}
           onOpenDocument={(id) => { setView("documents"); setActiveCaseId(id) }}
+          spaces={cases.map((c) => ({ id: c.id, title: c.title }))}
+          onSetDocumentSpace={setDocumentSpace}
         />
       </SidePanel>
       )}

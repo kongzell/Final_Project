@@ -43,6 +43,8 @@ type Props = {
   onSetDue: (taskId: string, date: string | null) => void
   onSetCategory: (taskId: string, category: string | null) => void
   onSetDescription: (taskId: string, description: string | null) => void
+  onUploadAttachments: (taskId: string, files: File[]) => void
+  onRemoveAttachment: (taskId: string, attachmentId: string) => void
   onDeleteTask: (taskId: string) => void
   onAddMember: () => void
   /** เจ้าของโปรเจคเท่านั้นที่เพิ่มงานและจัดการสมาชิกได้ */
@@ -54,7 +56,8 @@ export function Board({
   project, members, sourceFiles, query, filters, groupBy, selectedTaskId, currentMemberId,
   onClaimTask, onOpenTask,
   onSetSubtaskStatus, onAddTask, onChangeStatus, onToggleAssignee,
-  onSetPriority, onSetDue, onSetCategory, onSetDescription, onDeleteTask, onAddMember,
+  onSetPriority, onSetDue, onSetCategory, onSetDescription, onUploadAttachments, onRemoveAttachment,
+  onDeleteTask, onAddMember,
   canManage,
   onClearFilters,
 }: Props) {
@@ -167,6 +170,9 @@ export function Board({
               onSetDue={(d) => onSetDue(t.id, d)}
               onSetCategory={(c) => onSetCategory(t.id, c)}
               onSetDescription={(d) => onSetDescription(t.id, d)}
+              hasDocumentSpace={project.documentCaseId !== null}
+              onUploadAttachments={(files) => onUploadAttachments(t.id, files)}
+              onRemoveAttachment={(id) => onRemoveAttachment(t.id, id)}
               onDelete={() => onDeleteTask(t.id)}
               onAddMember={onAddMember}
             />

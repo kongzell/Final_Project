@@ -50,6 +50,8 @@ export type Task = {
   dependsOn: string[]
   /** ไฟล์ในหน้า Documents ที่งานนี้แตกมาจาก — null ถ้าสร้างเองหรือเอกสารถูกลบแล้ว */
   sourceFileId: string | null
+  /** ไฟล์ผลงานที่แนบกับการ์ด เรียงตามเวลาที่แนบ */
+  attachments: TaskAttachment[]
   /** branch ล่าสุดที่ commit ถึงงานนี้ */
   branch: string | null
   /** ลิงก์ PR ล่าสุดที่อ้างถึงงานนี้ */
@@ -57,9 +59,25 @@ export type Task = {
   complexity: Complexity | null
 }
 
+/** ไฟล์ผลงานบนการ์ด — รออยู่ที่การ์ดจนงานผ่านการตรวจ แล้วถูกเก็บลงที่เก็บเอกสารประจำโปรเจค */
+export type TaskAttachment = {
+  id: string
+  filename: string
+  contentType: string
+  size: number
+  uploadedBy: string | null
+  uploadedAt: string
+  /** เวลาที่ถูกเก็บลงที่เก็บกลาง — null = ยังรอตรวจอยู่ที่การ์ด */
+  archivedAt: string | null
+  /** เอกสารในที่เก็บกลาง — null ทั้งที่ archivedAt มีค่า แปลว่าเอกสารนั้นถูกลบภายหลัง */
+  fileId: string | null
+}
+
 export type Project = {
   id: string
   name: string
+  /** ที่เก็บเอกสารที่ไฟล์แนบของการ์ดจะถูกเก็บลงเมื่องานผ่านการตรวจ — null = ยังไม่ได้ตั้ง */
+  documentCaseId: string | null
   /** id ของคนที่สร้างโปรเจค — ลบโปรเจคกับตั้ง admin ได้คนเดียว */
   ownerId: string | null
   /** สมาชิกที่เจ้าของตั้งเป็น admin — ทำได้เท่าเจ้าของในหน้าเว็บ */

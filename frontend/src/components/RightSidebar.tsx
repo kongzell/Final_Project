@@ -24,6 +24,9 @@ type Props = {
   onAddDocument: () => void
   onRequestDocument: () => void
   onOpenDocument: (caseId: string) => void
+  /** ที่เก็บที่ฉันเป็นสมาชิก — ตัวเลือกของที่เก็บประจำโปรเจค */
+  spaces: { id: string; title: string }[]
+  onSetDocumentSpace: (caseId: string | null) => void
 }
 
 export function RightSidebar({
@@ -38,12 +41,23 @@ export function RightSidebar({
   onAddDocument,
   onRequestDocument,
   onOpenDocument,
+  spaces,
+  onSetDocumentSpace,
 }: Props) {
   return (
     <aside className="rs">
       {project && <ProjectStats project={project} onOpen={onOpenProject} />}
       {project && (
-        <ProjectDocumentsPanel docs={docs} onAdd={onAddDocument} onRequest={onRequestDocument} onOpen={onOpenDocument} />
+        <ProjectDocumentsPanel
+          docs={docs}
+          onAdd={onAddDocument}
+          onRequest={onRequestDocument}
+          onOpen={onOpenDocument}
+          documentCaseId={project.documentCaseId}
+          spaces={spaces}
+          canManage={canManage}
+          onSetSpace={onSetDocumentSpace}
+        />
       )}
       {project && (
         <TeamPanel
@@ -206,11 +220,24 @@ function TeamPanel({
 
 /** ทุกใบที่ผูกโปรเจคนี้จากทุกที่เก็บ — คนในโปรเจคเห็นและเปิดไฟล์ได้ทุกใบ แต่เข้าที่เก็บได้เฉพาะที่ตัวเองเป็นสมาชิก */
 function ProjectDocumentsPanel({
-  docs, onAdd, onRequest, onOpen,
-}: { docs: ProjectDocuments | null; onAdd: () => void; onRequest: () => void; onOpen: (caseId: string) => void }) {
+  docs, onAdd, onRequest, onOpen, documentCaseId, spaces, canManage, onSetSpace,
+}: {
+  docs: ProjectDocuments | null
+  onAdd: () => void
+  onRequest: () => void
+  onOpen: (caseId: string) => void
+  documentCaseId: string | null
+  spaces: { id: string; title: string }[]
+  canManage: boolean
+  onSetSpace: (caseId: string | null) => void
+}) {
   const rows = docs?.files ?? []
   const waiting = docs?.requests ?? []
   const statusOf = (f: CaseFile) => CASE_STATUSES.find((s) => s.id === f.status)
+  // ตั้งไว้เป็นที่เก็บที่ฉันไม่ได้อยู่ก็ได้ (คนอื่นตั้ง) — รู้แค่ว่ามี แต่ไม่รู้ชื่อ
+  const spaceName = documentCaseId
+    ? spaces.find((s) => s.id === documentCaseId)?.title ?? "A space you are not in"
+    : null
 
   return (
     <section className="rs-panel">
@@ -267,6 +294,28 @@ function ProjectDocumentsPanel({
           ))}
         </ul>
       )}
+
+      {/* ไฟล์ที่แนบกับการ์ดเข้าที่เก็บนี้เมื่องานผ่านการตรวจ — ตั้งไว้ก่อน เพราะงานที่ปิดจาก GitHub ไม่มีใครเลือกให้ */}
+      <div className="rs-space">
+        <span className="rs-space-label">Approved card files go to</span>
+        {canManage ? (
+          <select
+            className="rs-space-select"
+            value={documentCaseId ?? ""}
+            onChange={(e) => onSetSpace(e.target.value || null)}
+          >
+            <option value="">Not set — files wait on the card</option>
+            {spaces.map((s) => (
+              <option key={s.id} value={s.id}>{s.title}</option>
+            ))}
+            {documentCaseId && !spaces.some((s) => s.id === documentCaseId) && (
+              <option value={documentCaseId}>A space you are not in</option>
+            )}
+          </select>
+        ) : (
+          <span className="rs-space-value">{spaceName ?? "Not set yet"}</span>
+        )}
+      </div>
 
       <div className="rs-doc-btns">
         <button type="button" className="rs-add-member" onClick={onAdd}>

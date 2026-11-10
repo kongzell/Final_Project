@@ -114,6 +114,21 @@ class TaskUpdate(ApiModel):
     complexity: Complexity | None = None
 
 
+class TaskAttachmentOut(ApiModel):
+    """ไฟล์ผลงานบนการ์ด — แค่ข้อมูลกำกับ ตัวไฟล์ดาวน์โหลดผ่าน endpoint แยก"""
+
+    id: str
+    filename: str
+    content_type: str
+    size: int
+    uploaded_by: str | None
+    uploaded_at: datetime
+    #: เวลาที่ถูกเก็บลงที่เก็บเอกสารกลาง — null = ยังรอตรวจอยู่ที่การ์ด
+    archived_at: datetime | None = None
+    #: เอกสารในที่เก็บกลางที่ไฟล์นี้ถูกเก็บไป — null ทั้งที่ archived แล้ว แปลว่าเอกสารถูกลบภายหลัง
+    file_id: str | None = None
+
+
 class TaskOut(ApiModel):
     id: str
     #: เลขงานในโปรเจค ใช้คู่กับ taskPrefix ของโปรเจคเป็นรหัสอย่าง KST-001
@@ -146,6 +161,8 @@ class TaskOut(ApiModel):
     depends_on: list[str] = []
     #: ไฟล์ต้นทางในหน้า Documents — null ถ้าสร้างเองหรือเอกสารถูกลบไปแล้ว
     source_file_id: str | None = None
+    #: ไฟล์ผลงานที่แนบกับการ์ด เรียงตามเวลาที่แนบ
+    attachments: list[TaskAttachmentOut] = []
     #: branch ล่าสุดที่ commit ถึงงานนี้ (ไม่รวม branch หลัก)
     branch: str | None = None
     #: ลิงก์ PR ล่าสุดที่อ้างถึงงานนี้
@@ -178,11 +195,15 @@ class ProjectUpdate(ApiModel):
     github_repo: str | None = Field(default=None, max_length=200)
     #: ตัวอักษรกับตัวเลข ขึ้นต้นด้วยตัวอักษร — ต้องพิมพ์ใน commit ได้ง่าย
     task_prefix: str | None = Field(default=None, pattern=r"^[A-Za-z][A-Za-z0-9]{0,9}$")
+    #: ที่เก็บเอกสารประจำโปรเจค — ส่ง null มาเพื่อเลิกตั้ง
+    document_case_id: str | None = None
 
 
 class ProjectOut(ApiModel):
     owner_id: str | None = None
     task_prefix: str = "TASK"
+    #: ที่เก็บที่ไฟล์แนบของการ์ดจะถูกเก็บลงเมื่องานผ่านการตรวจ
+    document_case_id: str | None = None
     id: str
     name: str
     github_repo: str | None
