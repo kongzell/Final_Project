@@ -198,12 +198,7 @@ export function MemberPanel({ project, members, memberId, onSelectMember, onOpen
           <dd className={stats.reworks > 0 ? "is-bad" : ""}>{stats.reworks} times</dd>
         </div>
       </dl>
-
-      {/* แต้มสำคัญกว่าจำนวนงาน คนที่หยิบแต่งานง่ายจะปิดได้เยอะที่สุดเสมอ */}
-      <p className="md-note">
-        Points come from complexity — easy 1 · medium 3 · hard 5
-        {thin && ` · only ${stats.done.length} closed so far, too little data to judge`}
-      </p>
+      
 
       {stats.talk.length > 0 && (
         <section className="md-block">
